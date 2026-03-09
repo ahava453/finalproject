@@ -1,65 +1,84 @@
-import time
-import random
-import time
-import random
-from transformers import pipeline
 from database import SessionLocal
 from models import SentimentResult
+import sys
+import os
+import logging
+import traceback
 
-# Initialize the DistilBERT sentiment analysis pipeline once when the module loads
-print("Loading HuggingFace DistilBERT model...")
-sentiment_pipeline = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def run_sentiment_agent(platform: str, api_key: str):
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+def run_sentiment_agent(platform: str, target_account: str, api_keys: dict):
     """
-    Synchronous Agent Workflow (removed Celery dependency for simplicity):
-    1. Fetching Agent: Simulates fetching data from the platform.
-    2. Processing Agent: Analyzes text sentiment using DistilBERT.
-    3. Storage Agent: Saves results to SQLite DB.
+    Multi-Agent Workflow:
+    1. Fetching Agent: Retrieves comments from social platforms.
+    2. Processing Agent: Cleans text, extracts keywords, and scores sentiment.
+    3. Storage: Saves results to DB.
     """
-    # 1. Simulate Fetching Data
-    time.sleep(1) # Simulate network delay
-    
-    mock_reviews = [
-        "This product is absolutely amazing! Highly recommended.",
-        "Terrible experience, would not buy again.",
-        "It's okay, nothing special but it works as expected.",
-        "Love the new design! So sleek.",
-        "Customer service was completely unhelpful."
-    ]
-    sampled_reviews = random.sample(mock_reviews, 3)
+    logger.info(f"[TASK START] platform={platform}, account={target_account}")
 
+    # ── Import agents here so reload picks up changes ──────────────────
+    try:
+        from agents.fetcher import FetcherAgent
+        from agents.preprocessor import PreprocessorAgent
+        logger.info("[TASK] Agent imports OK")
+    except Exception as exc:
+        logger.error(f"[TASK] Agent import FAILED: {exc}\n{traceback.format_exc()}")
+        return {"status": "error", "message": str(exc)}
+
+    # ── 1. Fetch ────────────────────────────────────────────────────────
+    try:
+        fetcher = FetcherAgent(api_keys=api_keys)
+        logger.info("[TASK] Fetcher initialised, calling fetch_comments...")
+        raw_comments = fetcher.fetch_comments(platform, target_account)
+        logger.info(f"[TASK] Fetch done. Got {len(raw_comments)} comments.")
+    except Exception as exc:
+        logger.error(f"[TASK] Fetch FAILED: {exc}\n{traceback.format_exc()}")
+        return {"status": "error", "message": str(exc)}
+
+    if not raw_comments:
+        logger.info("[TASK] No comments returned. Exiting.")
+        return {"status": "success", "message": "No comments found.", "processed": 0}
+
+    # ── 2. Preprocess ───────────────────────────────────────────────────
+    try:
+        preprocessor = PreprocessorAgent()
+        logger.info(f"[TASK] Preprocessor ready. Processing {len(raw_comments)} comments...")
+        processed_comments = preprocessor.process(raw_comments)
+        logger.info(f"[TASK] Preprocessing done. {len(processed_comments)} processed.")
+    except Exception as exc:
+        logger.error(f"[TASK] Preprocess FAILED: {exc}\n{traceback.format_exc()}")
+        return {"status": "error", "message": str(exc)}
+
+    # ── 3. Storage ──────────────────────────────────────────────────────
     db = SessionLocal()
     processed_count = 0
-
     try:
-        # 2. NLP Processing with DistilBERT
-        for review in sampled_reviews:
-            # The pipeline returns a list of dicts like: [{'label': 'POSITIVE', 'score': 0.99}]
-            result = sentiment_pipeline(review)[0]
-            
-            label_mapping = {
-                "POSITIVE": "positive",
-                "NEGATIVE": "negative"
-            }
-            mapped_label = label_mapping.get(result['label'], "neutral")
-            
-            # 3. Save to Database
+        for comment in processed_comments:
+            # Skip duplicates
+            exists = db.query(SentimentResult).filter_by(source_id=comment["id"]).first()
+            if exists:
+                continue
             new_result = SentimentResult(
                 platform=platform,
-                source_id=f"mock_{random.randint(1000, 9999)}",
-                content_text=review,
-                sentiment_score=result['score'],
-                sentiment_label=mapped_label
+                source_id=comment["id"],
+                content_text=comment["clean_text"],
+                sentiment_score=comment["sentiment_score"],
+                sentiment_label=comment["sentiment_label"]
             )
             db.add(new_result)
             processed_count += 1
-            
+
         db.commit()
-    except Exception as e:
+        logger.info(f"[TASK] Saved {processed_count} new results to DB.")
+    except Exception as exc:
         db.rollback()
-        raise e
+        logger.error(f"[TASK] DB write FAILED: {exc}\n{traceback.format_exc()}")
     finally:
         db.close()
 
+    logger.info(f"[TASK DONE] Processed {processed_count} comments for {platform}.")
     return {"status": "success", "processed_reviews": processed_count, "platform": platform}
