@@ -11,14 +11,30 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def run_sentiment_agent(platform: str, target_account: str, api_keys: dict):
+def run_sentiment_agent(
+    platform: str,
+    target_account: str,
+    api_keys: dict,
+    max_videos: int = 50,
+    max_comments_per_video: int = 100,
+):
     """
     Multi-Agent Workflow:
-    1. Fetching Agent: Retrieves comments from social platforms.
-    2. Processing Agent: Cleans text, extracts keywords, and scores sentiment.
-    3. Storage: Saves results to DB.
+    1. Fetching Agent  – retrieves comments from social platforms.
+    2. Processing Agent – cleans text, extracts keywords, scores sentiment.
+    3. Storage          – saves results to DB.
+
+    For YouTube:
+      - If `target_account` is a single video URL/ID  → fetches up to
+        `max_comments_per_video` comments for that video.
+      - If `target_account` is a channel URL/@handle/UCxxx ID → fetches
+        comments across ALL videos in the channel (up to `max_videos` videos,
+        `max_comments_per_video` comments each).
     """
-    logger.info(f"[TASK START] platform={platform}, account={target_account}")
+    logger.info(
+        f"[TASK START] platform={platform}, account={target_account}, "
+        f"max_videos={max_videos}, max_comments_per_video={max_comments_per_video}"
+    )
 
     # ── Import agents here so reload picks up changes ──────────────────
     try:
@@ -33,7 +49,12 @@ def run_sentiment_agent(platform: str, target_account: str, api_keys: dict):
     try:
         fetcher = FetcherAgent(api_keys=api_keys)
         logger.info("[TASK] Fetcher initialised, calling fetch_comments...")
-        raw_comments = fetcher.fetch_comments(platform, target_account)
+        raw_comments = fetcher.fetch_comments(
+            platform,
+            target_account,
+            max_comments_per_video=max_comments_per_video,
+            max_videos=max_videos,
+        )
         logger.info(f"[TASK] Fetch done. Got {len(raw_comments)} comments.")
     except Exception as exc:
         logger.error(f"[TASK] Fetch FAILED: {exc}\n{traceback.format_exc()}")

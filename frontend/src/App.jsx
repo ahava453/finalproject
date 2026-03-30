@@ -1,145 +1,358 @@
-import React, { useState } from 'react';
-import { Youtube, Facebook, Instagram, Key, User, Activity, AlertCircle, RefreshCw } from 'lucide-react';
+import React, { useState, useRef, useCallback } from 'react';
+import {
+  Youtube, Facebook, Instagram, Key, Activity, AlertCircle,
+  RefreshCw, CheckCircle, Settings, X, ChevronRight,
+  Menu, LogOut, LogIn, History, Palette, PlusSquare
+} from 'lucide-react';
 import {
   PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
-  LineChart, Line
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Legend
 } from 'recharts';
 import './index.css';
 
 const API_BASE_URL = 'http://localhost:8000/api';
 
-const COLORS = {
-  positive: '#10b981',
-  neutral: '#6b7280',
-  negative: '#ef4444'
+/* ─── Default channel targets saved per platform ─── */
+const DEFAULT_TARGETS = {
+  youtube: '',
+  facebook: '',
+  instagram: '',
 };
 
-function App() {
+const PLATFORM_META = {
+  youtube: {
+    hint: '@handle, channel URL, or video URL',
+    placeholder: 'e.g. @MrBeast  or  https://youtube.com/@MKBHD',
+    keyLabel: 'YouTube Data API Key',
+    keyPlaceholder: 'AIza…',
+  },
+  facebook: {
+    hint: 'Facebook Page URL or Post URL',
+    placeholder: 'e.g. https://www.facebook.com/PageName',
+    keyLabel: 'Facebook Access Token',
+    keyPlaceholder: 'EAAx…',
+  },
+  instagram: {
+    hint: 'Instagram handle or media URL',
+    placeholder: 'e.g. @natgeo',
+    keyLabel: 'Instagram Access Token',
+    keyPlaceholder: 'IGQ…',
+  },
+};
+
+const COLORS = { positive: '#10b981', neutral: '#6b7280', negative: '#ef4444' };
+
+/* ═══════════════════════════════════════════════════════════════ */
+export default function App() {
   const [activePlatform, setActivePlatform] = useState('youtube');
-  const [targetAccount, setTargetAccount] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [targets, setTargets] = useState(DEFAULT_TARGETS);  // persisted per platform
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [dashboardData, setDashboardData] = useState(null);
   const [error, setError] = useState('');
+  const [statusMsg, setStatusMsg] = useState('');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const elapsedRef = React.useRef(null);
+  const [samplesOpen, setSamplesOpen] = useState(true);
 
+  const elapsedRef = useRef(null);
+  const pollRef = useRef(null);
+
+  const target = targets[activePlatform];
+
+  /* ── Helpers ──────────────────────────────────────────────── */
+  const clearTimers = () => {
+    clearInterval(elapsedRef.current);
+    clearTimeout(pollRef.current);
+  };
+
+  const getCount = useCallback(async (platform) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/count/${platform}`);
+      const data = await res.json();
+      return data.count ?? 0;
+    } catch { return 0; }
+  }, []);
+
+  const loadDashboard = useCallback(async (platform) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/dashboard/${platform}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setDashboardData(data);
+      setStatusMsg('✅ Analysis complete — dashboard updated!');
+    } catch {
+      setError('Analysis finished but failed to load dashboard. Try refreshing.');
+    } finally {
+      setLoading(false);
+      clearTimers();
+    }
+  }, []);
+
+
+  /* ── Smart polling ────────────────────────────────────────────── */
+  // Polls /api/task-status every 3 seconds.
+  // Loads dashboard when done=true — works even if all rows are duplicates.
+  const pollForResults = useCallback(
+    (platform, attempt = 0) => {
+      const MAX = 80;       // 80 × 3 s = 4 min max
+      const INTERVAL = 3000;
+
+      if (attempt >= MAX) {
+        clearTimers();
+        setError('Analysis timed out (>4 min). Backend may still be running — wait and try again.');
+        setLoading(false);
+        return;
+      }
+
+      pollRef.current = setTimeout(async () => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/task-status`);
+          const state = await res.json();
+
+          if (state.done) {
+            if (state.error) {
+              setError(`Analysis error: ${state.error}`);
+              setLoading(false);
+              clearTimers();
+            } else {
+              const saved = state.processed || 0;
+              setStatusMsg(`✅ Done! ${saved} new comments saved to database.`);
+              await loadDashboard(platform);
+            }
+          } else {
+            setStatusMsg(`⏳ Fetching comments… (${(attempt + 1) * 3}s elapsed)`);
+            pollForResults(platform, attempt + 1);
+          }
+        } catch {
+          pollForResults(platform, attempt + 1);
+        }
+      }, INTERVAL);
+    },
+    [loadDashboard]
+  );
+
+  /* ── Run analysis ─────────────────────────────────────────── */
   const handleAnalyze = async (e) => {
-    e.preventDefault();
-    if (!targetAccount) {
-      setError('Please enter a YouTube video URL');
+    if (e) e.preventDefault();
+
+    if (!target.trim()) {
+      setSettingsOpen(true);
+      setError(`⚙️ Configure your ${activePlatform} target in Settings first.`);
+      return;
+    }
+    if (!apiKey.trim()) {
+      setError('⚠️ Please enter your API key.');
       return;
     }
 
     setError('');
+    setStatusMsg('');
     setLoading(true);
     setDashboardData(null);
     setElapsedSeconds(0);
-    // Start elapsed timer
+    clearTimers();
+
     elapsedRef.current = setInterval(() => setElapsedSeconds(s => s + 1), 1000);
 
     try {
-      // 1. Trigger the Multi-Agent Pipeline
-      const triggerRes = await fetch(`${API_BASE_URL}/analyze`, {
+      const res = await fetch(`${API_BASE_URL}/analyze`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           platform: activePlatform,
-          target_account: targetAccount,
-          api_key: apiKey
+          target_account: target,
+          api_key: apiKey,
+          max_videos: 50,
+          max_comments_per_video: 100,
         }),
       });
 
-      if (!triggerRes.ok) throw new Error('Failed to start analysis pipeline');
-
-      // Poll for results: the background task takes time for API call + NLP
-      pollForResults(0);
-
+      if (!res.ok) throw new Error('Failed to start analysis pipeline.');
+      setStatusMsg('🚀 Pipeline started — fetching comments…');
+      pollForResults(activePlatform);
     } catch (err) {
       setError(err.message || 'Failed to connect to backend.');
       setLoading(false);
+      clearTimers();
     }
   };
 
-  const pollForResults = async (attempt) => {
-    const MAX_ATTEMPTS = 40;
-    const POLL_INTERVAL = 3000;
+  const handleManualRefresh = async () => {
+    setLoading(true);
+    setError('');
+    await loadDashboard(activePlatform);
+  };
 
-    if (attempt >= MAX_ATTEMPTS) {
-      clearInterval(elapsedRef.current);
-      setError('Analysis timed out after 2 minutes. The NLP model may still be processing — wait a moment and click "Run Analysis Pipeline" again.');
-      setLoading(false);
-      return;
-    }
-
+  const handleClearData = async () => {
+    if (!window.confirm(`Clear ALL stored ${activePlatform} data? This cannot be undone.`)) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/dashboard/${activePlatform}`);
-      if (!res.ok) throw new Error('Failed to fetch dashboard data');
+      const res = await fetch(`${API_BASE_URL}/data/${activePlatform}`, { method: 'DELETE' });
       const data = await res.json();
-
-      if (data && data.summary && data.summary.total_comments > 0) {
-        clearInterval(elapsedRef.current);
-        setDashboardData(data);
-        setLoading(false);
-      } else {
-        setTimeout(() => pollForResults(attempt + 1), POLL_INTERVAL);
-      }
-    } catch (err) {
-      setTimeout(() => pollForResults(attempt + 1), POLL_INTERVAL);
+      setDashboardData(null);
+      setStatusMsg('');
+      setError(`🗑️ ${data.message}`);
+    } catch {
+      setError('Failed to clear data.');
     }
   };
 
-  const fetchDashboard = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/dashboard/${activePlatform}`);
-      if (!res.ok) throw new Error('Failed to fetch dashboard data');
-      const data = await res.json();
-      setDashboardData(data);
-    } catch (err) {
-      setError('Error compiling visualization data.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const renderDashboard = () => {
-    if (loading) {
-      return (
-        <div className="results-section loading-state">
-          <RefreshCw className="spinner" size={48} />
-          <p>Multi-Agent Pipeline Running... ({elapsedSeconds}s)</p>
-          <p style={{ fontSize: '0.85em', color: 'var(--text-secondary)' }}>Fetching comments &amp; running NLP sentiment analysis. The model loads once and is fast on subsequent runs.</p>
+  /* ── Settings panel ────────────────────────────────────────── */
+  const SettingsPanel = () => (
+    <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
+      <div className="settings-panel" onClick={e => e.stopPropagation()}>
+        <div className="settings-header">
+          <h3><Settings size={18} /> Channel / Account Settings</h3>
+          <button className="icon-btn" onClick={() => setSettingsOpen(false)}><X size={20} /></button>
         </div>
-      );
-    }
+        <p className="settings-hint">
+          Set the account once here. The main form only needs your API key.
+        </p>
 
-    if (!dashboardData) {
-      return (
-        <div className="results-section">
-          <div className="placeholder-results">
-            <Activity size={48} style={{ color: 'var(--text-secondary)', marginBottom: '16px' }} />
-            <h3>No Data Analyzed Yet</h3>
-            <p>Connect to an API and enter a target account to initiate the data fetching and processing agents.</p>
+        {['youtube', 'facebook', 'instagram'].map(p => (
+          <div className="form-group" key={p} style={{ marginTop: 16 }}>
+            <label style={{ textTransform: 'capitalize', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {p === 'youtube' && <Youtube size={16} />}
+              {p === 'facebook' && <Facebook size={16} />}
+              {p === 'instagram' && <Instagram size={16} />}
+              {p} — {PLATFORM_META[p].hint}
+            </label>
+            <div className="api-input-container">
+              <input
+                type="text"
+                className="api-input"
+                placeholder={PLATFORM_META[p].placeholder}
+                value={targets[p]}
+                onChange={e => setTargets(prev => ({ ...prev, [p]: e.target.value }))}
+              />
+            </div>
           </div>
+        ))}
+
+        <button
+          className="connect-btn"
+          style={{ marginTop: 20 }}
+          onClick={() => { setSettingsOpen(false); setError(''); }}
+        >
+          Save &amp; Close
+        </button>
+      </div>
+    </div>
+  );
+
+  /* ── Main Side Menu ───────────────────────────────────────── */
+  const SideMenu = () => (
+    <div className="settings-overlay" onClick={() => setIsMenuOpen(false)}>
+      <div className="side-menu-panel" onClick={e => e.stopPropagation()}>
+        <div className="settings-header" style={{ marginBottom: '24px' }}>
+          <h3><Menu size={18} /> Menu</h3>
+          <button className="icon-btn" onClick={() => setIsMenuOpen(false)}><X size={20} /></button>
         </div>
-      );
-    }
+        
+        <div className="menu-list">
+          <button className="menu-item" onClick={() => {
+            setDashboardData(null);
+            setTargets(DEFAULT_TARGETS);
+            setApiKey('');
+            setIsMenuOpen(false);
+          }}>
+            <PlusSquare size={18} /> New Analyze
+          </button>
+          
+          <button className="menu-item" onClick={() => {
+            alert("Themes modal placeholder");
+            setIsMenuOpen(false);
+          }}>
+            <Palette size={18} /> Themes
+          </button>
+
+          <button className="menu-item" onClick={() => {
+            alert("History placeholder");
+            setIsMenuOpen(false);
+          }}>
+            <History size={18} /> History
+          </button>
+
+          <div className="menu-divider" />
+
+          {isSignedIn ? (
+            <button className="menu-item text-negative" onClick={() => { setIsSignedIn(false); setIsMenuOpen(false); }}>
+              <LogOut size={18} /> Log Out
+            </button>
+          ) : (
+            <button className="menu-item text-accent" onClick={() => { setIsSignedIn(true); setIsMenuOpen(false); }}>
+              <LogIn size={18} /> Sign In
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ── Dashboard render ─────────────────────────────────────── */
+  const renderDashboard = () => {
+    if (loading) return (
+      <div className="results-section loading-state">
+        <RefreshCw className="spinner" size={48} />
+        <p style={{ fontWeight: 600, fontSize: '1.1em' }}>
+          Multi-Agent Pipeline Running… ({elapsedSeconds}s)
+        </p>
+        {statusMsg && (
+          <p style={{ fontSize: '0.88em', color: 'var(--text-secondary)', marginTop: 8 }}>
+            {statusMsg}
+          </p>
+        )}
+        <p style={{ fontSize: '0.82em', color: 'var(--text-secondary)', marginTop: 4 }}>
+          For channels, all videos are scanned — this may take a minute or two.
+        </p>
+      </div>
+    );
+
+    if (!dashboardData) return (
+      <div className="results-section">
+        <div className="placeholder-results">
+          <Activity size={48} style={{ color: 'var(--text-secondary)', marginBottom: 16 }} />
+          <h3>No Data Analyzed Yet</h3>
+          <p>
+            Enter your API key and click <strong>Run Analysis</strong>.
+            {!target && (
+              <> First, <button className="inline-link" onClick={() => setSettingsOpen(true)}>
+                configure your target account ↗
+              </button></>
+            )}
+          </p>
+        </div>
+      </div>
+    );
 
     const { summary, charts, raw_samples } = dashboardData;
-
     return (
       <div className="dashboard-grid">
+        {statusMsg && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#10b981', fontWeight: 600, marginBottom: 8 }}>
+            <CheckCircle size={18} />{statusMsg}
+          </div>
+        )}
+
         <div className="summary-cards">
           <div className="card">
-            <h4>Total Comments Analysed</h4>
+            <h4>Total Comments</h4>
             <div className="value">{summary.total_comments}</div>
           </div>
           <div className="card">
-            <h4>Average Sentiment</h4>
+            <h4>Avg Sentiment</h4>
             <div className="value">{(summary.avg_sentiment * 100).toFixed(1)} / 100</div>
+          </div>
+          <div className="card card-action" onClick={handleManualRefresh}>
+            <h4>Refresh</h4>
+            <div className="value"><RefreshCw size={26} /></div>
+          </div>
+          <div className="card card-danger" onClick={handleClearData}>
+            <h4>Clear Data</h4>
+            <div className="value" style={{ fontSize: '1.4rem' }}>🗑️</div>
           </div>
         </div>
 
@@ -148,17 +361,10 @@ function App() {
             <h3>Sentiment Distribution</h3>
             <ResponsiveContainer width="100%" height={250}>
               <PieChart>
-                <Pie
-                  data={charts.sentiment_pie}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {charts.sentiment_pie.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[entry.name.toLowerCase()] || COLORS.neutral} />
+                <Pie data={charts.sentiment_pie} cx="50%" cy="50%"
+                  innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
+                  {charts.sentiment_pie.map((entry, i) => (
+                    <Cell key={i} fill={COLORS[entry.name.toLowerCase()] || COLORS.neutral} />
                   ))}
                 </Pie>
                 <RechartsTooltip />
@@ -166,7 +372,6 @@ function App() {
               </PieChart>
             </ResponsiveContainer>
           </div>
-
           <div className="chart-box">
             <h3>Sentiment Timeline</h3>
             <ResponsiveContainer width="100%" height={250}>
@@ -184,89 +389,135 @@ function App() {
         </div>
 
         <div className="feed-container">
-          <h3>Recent Processed Samples</h3>
-          <div className="sample-list">
-            {raw_samples.map((sample, idx) => (
-              <div key={idx} className={`sample-item border-${sample.sentiment_label}`}>
-                <p className="sample-text">"{sample.clean_text}"</p>
-                <span className={`badge badge-${sample.sentiment_label}`}>{sample.sentiment_label} ({sample.sentiment_score.toFixed(2)})</span>
-              </div>
-            ))}
-          </div>
+          <button
+            className="feed-toggle"
+            onClick={() => setSamplesOpen(o => !o)}
+            aria-expanded={samplesOpen}
+          >
+            <h3>Recent Processed Samples ({raw_samples.length})</h3>
+            <span className="feed-chevron">{samplesOpen ? '▾' : '▸'}</span>
+          </button>
+
+          {samplesOpen && (
+            <div className="sample-list">
+              {raw_samples.map((s, i) => (
+                <div key={i} className={`sample-item border-${s.sentiment_label}`}>
+                  <p className="sample-text">"{s.clean_text}"</p>
+                  <span className={`badge badge-${s.sentiment_label}`}>
+                    {s.sentiment_label} ({s.sentiment_score.toFixed(2)})
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
   };
 
+  /* ── Layout ──────────────────────────────────────────────────  */
   return (
     <div className="app-container">
-      {/* Sidebar Navigation */}
+      {settingsOpen && <SettingsPanel />}
+      {isMenuOpen && <SideMenu />}
+
+      {/* Sidebar */}
       <aside className="sidebar">
-        <div className="logo">
-          <Activity size={32} />
-          <h2>AgentFlow</h2>
+        <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '40px' }}>
+          <button className="icon-btn" onClick={() => setIsMenuOpen(true)}>
+             <Menu size={24} />
+          </button>
+          <div className="logo" style={{ marginBottom: 0 }}>
+            <Activity size={32} />
+            <h2>AgentFlow</h2>
+          </div>
         </div>
 
         <div className="platform-nav">
-          <h3 className="nav-title">Select Platform</h3>
-          <button
-            className={`platform-btn ${activePlatform === 'youtube' ? 'active' : ''}`}
-            onClick={() => setActivePlatform('youtube')}
-          >
-            <Youtube /> YouTube
-          </button>
-          <button
-            className={`platform-btn ${activePlatform === 'facebook' ? 'active' : ''}`}
-            onClick={() => setActivePlatform('facebook')}
-          >
-            <Facebook /> Facebook
-          </button>
-          <button
-            className={`platform-btn ${activePlatform === 'instagram' ? 'active' : ''}`}
-            onClick={() => setActivePlatform('instagram')}
-          >
-            <Instagram /> Instagram
+          <h3 className="nav-title">Platform</h3>
+          {['youtube', 'facebook', 'instagram'].map(p => (
+            <button key={p}
+              className={`platform-btn ${activePlatform === p ? 'active' : ''}`}
+              onClick={() => { setActivePlatform(p); setDashboardData(null); setStatusMsg(''); setError(''); }}
+            >
+              {p === 'youtube' && <Youtube />}
+              {p === 'facebook' && <Facebook />}
+              {p === 'instagram' && <Instagram />}
+              {p.charAt(0).toUpperCase() + p.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {/* Quick target indicator */}
+        <div style={{ marginTop: 'auto', padding: '16px 12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <p style={{ fontSize: '0.75em', color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Target Account
+          </p>
+          <p style={{ fontSize: '0.82em', wordBreak: 'break-all', color: target ? '#e8eaed' : '#6b7280' }}>
+            {target || 'Not set'}
+          </p>
+          <button className="inline-link" style={{ marginTop: 8, fontSize: '0.8em' }}
+            onClick={() => setSettingsOpen(true)}>
+            <Settings size={13} /> Change target
           </button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
+      {/* Main */}
       <main className="main-content">
-        <header className="main-header">
-          <h1>Social Media Multi-Agent Analysis</h1>
-          <p>Fetch, process, and analyze comments from specific accounts securely.</p>
+        <header className="main-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h1>Social Media Multi-Agent Analysis</h1>
+            <p>Fetch &amp; analyse comments from YouTube channels, pages, and accounts.</p>
+          </div>
+          <button 
+            className="icon-btn refresh-pipeline-btn" 
+            onClick={() => handleAnalyze()} 
+            title="Fetch latest data pipeline"
+            disabled={loading}
+          >
+            <RefreshCw size={24} className={loading && dashboardData === null ? 'spinner' : ''} />
+          </button>
         </header>
 
-        {/* Input Form Pipeline Trigger */}
         <section className="api-section">
           <form onSubmit={handleAnalyze} className="config-form">
-            <div className="form-group">
-              <label>YouTube Video URL</label>
-              <div className="api-input-container">
-                <User className="api-icon" size={20} />
-                <input
-                  type="text"
-                  className="api-input"
-                  placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                  value={targetAccount}
-                  onChange={(e) => setTargetAccount(e.target.value)}
-                />
-              </div>
-            </div>
 
+            {/* API key only — no URL input */}
             <div className="form-group">
-              <label>API Key (Optional for Mock Agents)</label>
+              <label>{PLATFORM_META[activePlatform].keyLabel}</label>
               <div className="api-input-container">
                 <Key className="api-icon" size={20} />
                 <input
                   type="password"
                   className="api-input"
-                  placeholder={`Enter your ${activePlatform} API Key`}
+                  placeholder={PLATFORM_META[activePlatform].keyPlaceholder}
                   value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
+                  onChange={e => setApiKey(e.target.value)}
                 />
               </div>
             </div>
+
+            {/* Inline target badge */}
+            {target ? (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85em',
+                color: 'var(--text-secondary)', marginBottom: 8
+              }}>
+                <ChevronRight size={14} />
+                Fetching from: <strong style={{ color: '#e8eaed' }}>{target}</strong>
+                <button type="button" className="inline-link" onClick={() => setSettingsOpen(true)}>
+                  change
+                </button>
+              </div>
+            ) : (
+              <div style={{ marginBottom: 8 }}>
+                <button type="button" className="inline-link"
+                  style={{ fontSize: '0.88em' }} onClick={() => setSettingsOpen(true)}>
+                  ⚙️ Set target account first
+                </button>
+              </div>
+            )}
 
             {error && (
               <div className="error-message">
@@ -275,16 +526,13 @@ function App() {
             )}
 
             <button type="submit" className="connect-btn" disabled={loading}>
-              {loading ? 'Processing Pipeline...' : 'Run Analysis Pipeline'}
+              {loading ? 'Processing Pipeline…' : 'Run Analysis Pipeline'}
             </button>
           </form>
         </section>
 
-        {/* Dynamic Display Area */}
         {renderDashboard()}
       </main>
     </div>
   );
 }
-
-export default App;
