@@ -1,15 +1,15 @@
 :root {
-  --bg-color: #0d1117;
-  --sidebar-bg: #161b22;
-  --panel-bg: #21262d;
-  --text-primary: #f0f6fc;
-  --text-secondary: #8b949e;
-  --accent: #58a6ff;
-  --accent-hover: #3182ce;
+  --bg-color: #f8f9fa;
+  --sidebar-bg: #f1f3f5;
+  --panel-bg: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
 
-  --positive: #3fb950;
-  --neutral: #8b949e;
-  --negative: #f85149;
+  --positive: #22c55e;
+  --neutral: #64748b;
+  --negative: #ef4444;
 }
 
 * {
@@ -35,7 +35,7 @@ body {
 .sidebar {
   width: 280px;
   background-color: var(--sidebar-bg);
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
   padding: 24px;
@@ -86,7 +86,7 @@ body {
 }
 
 .platform-btn:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: rgba(0, 0, 0, 0.05);
   color: var(--text-primary);
 }
 
@@ -114,8 +114,9 @@ body {
   font-size: 2.2rem;
   font-weight: 600;
   margin-bottom: 8px;
-  background: linear-gradient(90deg, #58a6ff, #a371f7);
+  background: linear-gradient(90deg, #1e3a8a, #3b82f6);
   -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
@@ -127,7 +128,7 @@ body {
 /* API Key Section */
 .api-section {
   background: var(--panel-bg);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   padding: 30px;
   border-radius: 16px;
   margin-bottom: 30px;
@@ -155,7 +156,7 @@ body {
   background-color: var(--bg-color);
   border-radius: 8px;
   padding: 6px 6px 6px 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   transition: border-color 0.2s ease;
 }
 
@@ -198,11 +199,11 @@ body {
 }
 
 .connect-btn:disabled {
-  background-color: #21262d;
-  color: #8b949e;
+  background-color: #e2e8f0;
+  color: #94a3b8;
   cursor: not-allowed;
   box-shadow: none;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .error-message {
@@ -220,13 +221,13 @@ body {
 /* Results Section & Dashboard Grid */
 .results-section {
   flex: 1;
-  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border: 1px dashed rgba(0, 0, 0, 0.2);
   border-radius: 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(33, 38, 45, 0.3);
+  background: rgba(0, 0, 0, 0.03);
   animation: slideUp 0.8s ease;
   min-height: 400px;
 }
@@ -276,7 +277,7 @@ body {
   background: var(--panel-bg);
   padding: 24px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .card h4 {
@@ -303,13 +304,13 @@ body {
   background: var(--panel-bg);
   padding: 24px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .chart-box h3 {
   font-size: 1.2rem;
   margin-bottom: 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   padding-bottom: 12px;
 }
 
@@ -317,13 +318,13 @@ body {
   background: var(--panel-bg);
   padding: 24px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .feed-container h3 {
   font-size: 1.2rem;
   margin-bottom: 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   padding-bottom: 12px;
 }
 
@@ -497,7 +498,7 @@ body {
 
 .settings-panel {
   background: var(--sidebar-bg);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 16px;
   padding: 32px;
   width: 480px;
@@ -535,7 +536,7 @@ body {
   justify-content: space-between;
   background: none;
   border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   padding-bottom: 12px;
   margin-bottom: 16px;
   cursor: pointer;
@@ -561,7 +562,7 @@ body {
 /* Side Menu Panel */
 .side-menu-panel {
   background: var(--sidebar-bg);
-  border-right: 1px solid rgba(255, 255, 255, 0.12);
+  border-right: 1px solid rgba(0, 0, 0, 0.12);
   padding: 32px;
   width: 320px;
   height: 100vh;
@@ -601,7 +602,7 @@ body {
 }
 
 .menu-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .menu-item.text-negative {
@@ -614,7 +615,7 @@ body {
 
 .menu-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.1);
   margin: 16px 0;
 }
 
@@ -627,4 +628,4 @@ body {
 .refresh-pipeline-btn:hover {
   background: rgba(88, 166, 255, 0.2) !important;
   transform: translateY(-1px);
-}
+}

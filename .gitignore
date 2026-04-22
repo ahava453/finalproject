@@ -16,6 +16,7 @@ env/
 
 # Database
 *.sqlite3
+*.sqlite
 *.sqlite3-journal
 *.db
 

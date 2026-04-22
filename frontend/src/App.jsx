@@ -22,21 +22,21 @@ const DEFAULT_TARGETS = {
 const PLATFORM_META = {
   youtube: {
     hint: '@handle, channel URL, or video URL',
-    placeholder: 'e.g. @MrBeast  or  https://youtube.com/@MKBHD',
+    placeholder: '...',
     keyLabel: 'YouTube Data API Key',
-    keyPlaceholder: 'AIza…',
+    keyPlaceholder: '...',
   },
   facebook: {
     hint: 'Facebook Page URL or Post URL',
-    placeholder: 'e.g. https://www.facebook.com/PageName',
+    placeholder: '...',
     keyLabel: 'Facebook Access Token',
-    keyPlaceholder: 'EAAx…',
+    keyPlaceholder: '...',
   },
   instagram: {
     hint: 'Instagram handle or media URL',
-    placeholder: 'e.g. @natgeo',
+    placeholder: '...',
     keyLabel: 'Instagram Access Token',
-    keyPlaceholder: 'IGQ…',
+    keyPlaceholder: '...',
   },
 };
 
@@ -48,15 +48,13 @@ export default function App() {
   const [apiKey, setApiKey] = useState('');
   const [targets, setTargets] = useState(DEFAULT_TARGETS);  // persisted per platform
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isSignedIn, setIsSignedIn] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [dashboardData, setDashboardData] = useState(null);
   const [error, setError] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [samplesOpen, setSamplesOpen] = useState(true);
+  const [samplesOpen, setSamplesOpen] = useState(false);
 
   const elapsedRef = useRef(null);
   const pollRef = useRef(null);
@@ -94,10 +92,10 @@ export default function App() {
 
 
   /* ── Smart polling ────────────────────────────────────────────── */
-  // Polls /api/task-status every 3 seconds.
+  // Polls /api/task-status/{job_id} every 3 seconds.
   // Loads dashboard when done=true — works even if all rows are duplicates.
   const pollForResults = useCallback(
-    (platform, attempt = 0) => {
+    (platform, job_id, attempt = 0) => {
       const MAX = 80;       // 80 × 3 s = 4 min max
       const INTERVAL = 3000;
 
@@ -110,7 +108,7 @@ export default function App() {
 
       pollRef.current = setTimeout(async () => {
         try {
-          const res = await fetch(`${API_BASE_URL}/task-status`);
+          const res = await fetch(`${API_BASE_URL}/task-status/${job_id}`);
           const state = await res.json();
 
           if (state.done) {
@@ -120,15 +118,15 @@ export default function App() {
               clearTimers();
             } else {
               const saved = state.processed || 0;
-              setStatusMsg(`✅ Done! ${saved} new comments saved to database.`);
+              setStatusMsg(`✅ Done! ${saved} comments processed.`);
               await loadDashboard(platform);
             }
           } else {
-            setStatusMsg(`⏳ Fetching comments… (${(attempt + 1) * 3}s elapsed)`);
-            pollForResults(platform, attempt + 1);
+            setStatusMsg(state.status_message || `⏳ Fetching comments… (${(attempt + 1) * 3}s elapsed)`);
+            pollForResults(platform, job_id, attempt + 1);
           }
         } catch {
-          pollForResults(platform, attempt + 1);
+          pollForResults(platform, job_id, attempt + 1);
         }
       }, INTERVAL);
     },
@@ -172,8 +170,9 @@ export default function App() {
       });
 
       if (!res.ok) throw new Error('Failed to start analysis pipeline.');
-      setStatusMsg('🚀 Pipeline started — fetching comments…');
-      pollForResults(activePlatform);
+      const data = await res.json();
+      setStatusMsg('🚀 Pipeline started — processing…');
+      pollForResults(activePlatform, data.job_id);
     } catch (err) {
       setError(err.message || 'Failed to connect to backend.');
       setLoading(false);
@@ -243,54 +242,6 @@ export default function App() {
     </div>
   );
 
-  /* ── Main Side Menu ───────────────────────────────────────── */
-  const SideMenu = () => (
-    <div className="settings-overlay" onClick={() => setIsMenuOpen(false)}>
-      <div className="side-menu-panel" onClick={e => e.stopPropagation()}>
-        <div className="settings-header" style={{ marginBottom: '24px' }}>
-          <h3><Menu size={18} /> Menu</h3>
-          <button className="icon-btn" onClick={() => setIsMenuOpen(false)}><X size={20} /></button>
-        </div>
-        
-        <div className="menu-list">
-          <button className="menu-item" onClick={() => {
-            setDashboardData(null);
-            setTargets(DEFAULT_TARGETS);
-            setApiKey('');
-            setIsMenuOpen(false);
-          }}>
-            <PlusSquare size={18} /> New Analyze
-          </button>
-          
-          <button className="menu-item" onClick={() => {
-            alert("Themes modal placeholder");
-            setIsMenuOpen(false);
-          }}>
-            <Palette size={18} /> Themes
-          </button>
-
-          <button className="menu-item" onClick={() => {
-            alert("History placeholder");
-            setIsMenuOpen(false);
-          }}>
-            <History size={18} /> History
-          </button>
-
-          <div className="menu-divider" />
-
-          {isSignedIn ? (
-            <button className="menu-item text-negative" onClick={() => { setIsSignedIn(false); setIsMenuOpen(false); }}>
-              <LogOut size={18} /> Log Out
-            </button>
-          ) : (
-            <button className="menu-item text-accent" onClick={() => { setIsSignedIn(true); setIsMenuOpen(false); }}>
-              <LogIn size={18} /> Sign In
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
 
   /* ── Dashboard render ─────────────────────────────────────── */
   const renderDashboard = () => {
@@ -419,14 +370,10 @@ export default function App() {
   return (
     <div className="app-container">
       {settingsOpen && <SettingsPanel />}
-      {isMenuOpen && <SideMenu />}
 
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-header" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '40px' }}>
-          <button className="icon-btn" onClick={() => setIsMenuOpen(true)}>
-             <Menu size={24} />
-          </button>
           <div className="logo" style={{ marginBottom: 0 }}>
             <Activity size={32} />
             <h2>AgentFlow</h2>
@@ -468,16 +415,29 @@ export default function App() {
         <header className="main-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h1>Social Media Multi-Agent Analysis</h1>
-            <p>Fetch &amp; analyse comments from YouTube channels, pages, and accounts.</p>
+            <p>Fetch &amp; analyse comments from {activePlatform.charAt(0).toUpperCase() + activePlatform.slice(1)} channels, pages, and accounts.</p>
           </div>
-          <button 
-            className="icon-btn refresh-pipeline-btn" 
-            onClick={() => handleAnalyze()} 
-            title="Fetch latest data pipeline"
-            disabled={loading}
-          >
-            <RefreshCw size={24} className={loading && dashboardData === null ? 'spinner' : ''} />
-          </button>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <button 
+              className="connect-btn" 
+              onClick={() => {
+                setDashboardData(null);
+                setTargets(DEFAULT_TARGETS);
+                setApiKey('');
+              }} 
+              style={{ padding: '8px 16px', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <PlusSquare size={18} /> New Analyze
+            </button>
+            <button 
+              className="icon-btn refresh-pipeline-btn" 
+              onClick={() => handleAnalyze()} 
+              title="Fetch latest data pipeline"
+              disabled={loading}
+            >
+              <RefreshCw size={24} className={loading && dashboardData === null ? 'spinner' : ''} />
+            </button>
+          </div>
         </header>
 
         <section className="api-section">

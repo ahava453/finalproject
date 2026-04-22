@@ -24,26 +24,8 @@ app.add_middleware(
 
 Base.metadata.create_all(bind=engine)
 
-# ── In-memory task state ────────────────────────────────────────────────────
-# Tracks the latest background job so the frontend can poll for completion
-# without relying purely on DB row counts (which stay the same when all
-# comments are duplicates).
-_task_lock = threading.Lock()
-_task_state: dict = {
-    "running": False,
-    "done": False,
-    "error": None,
-    "processed": 0,
-    "job_id": None,
-}
-
-def _get_state() -> dict:
-    with _task_lock:
-        return dict(_task_state)
-
-def _set_state(**kwargs):
-    with _task_lock:
-        _task_state.update(kwargs)
+from celery.result import AsyncResult
+from celery_worker import celery_app
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
@@ -65,50 +47,57 @@ class AnalysisRequest(BaseModel):
     max_comments_per_video: int = 100  # Max comments collected per video
 
 
-def _run_task_with_state(
-    platform, target_account, api_keys, max_videos, max_comments_per_video
-):
-    """Wraps run_sentiment_agent to update _task_state on start/finish/error."""
-    _set_state(running=True, done=False, error=None, processed=0)
-    try:
-        result = run_sentiment_agent(
-            platform, target_account, api_keys, max_videos, max_comments_per_video
-        )
-        processed = result.get("processed_reviews", 0) if isinstance(result, dict) else 0
-        _set_state(running=False, done=True, error=None, processed=processed)
-    except Exception as exc:
-        _set_state(running=False, done=True, error=str(exc), processed=0)
+
 
 
 @app.post("/api/analyze")
-def trigger_analysis(request: AnalysisRequest, background_tasks: BackgroundTasks):
-    """Trigger the Multi-Agent Pipeline to process data."""
-    import uuid
-    job_id = str(uuid.uuid4())
-    _set_state(running=True, done=False, error=None, processed=0, job_id=job_id)
-
+def trigger_analysis(request: AnalysisRequest):
+    """Trigger the Multi-Agent Pipeline via Celery."""
     api_keys = {request.platform: request.api_key}
-    background_tasks.add_task(
-        _run_task_with_state,
+    
+    # Dispatch task to Celery
+    task = run_sentiment_agent.delay(
         request.platform,
         request.target_account,
         api_keys,
         request.max_videos,
         request.max_comments_per_video,
     )
+    
     return {
         "message": (
             f"Multi-Agent pipeline dispatched for {request.platform} "
             f"account '{request.target_account}'"
         ),
-        "job_id": job_id,
+        "job_id": task.id,
     }
 
 
-@app.get("/api/task-status")
-def get_task_status():
-    """Returns the current background task state."""
-    return _get_state()
+@app.get("/api/task-status/{job_id}")
+def get_task_status(job_id: str):
+    """Returns the current background task state from Celery."""
+    task_result = AsyncResult(job_id, app=celery_app)
+    
+    # Format to match the frontend expectations
+    state = {
+        "running": not task_result.ready(),
+        "done": task_result.ready(),
+        "error": None,
+        "processed": 0,
+        "job_id": job_id,
+        "status_message": "Initializing..."
+    }
+    
+    if task_result.info and isinstance(task_result.info, dict):
+        state["processed"] = task_result.info.get("processed", 0)
+        state["status_message"] = task_result.info.get("status", state["status_message"])
+        
+    if task_result.state == "FAILURE":
+        state["error"] = str(task_result.info)
+    elif task_result.state == "SUCCESS" and isinstance(task_result.info, dict):
+        state["processed"] = task_result.info.get("processed_reviews", 0)
+        
+    return state
 
 
 @app.get("/api/count/{platform}")

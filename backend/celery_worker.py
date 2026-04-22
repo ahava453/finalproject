@@ -4,14 +4,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Redis Configuration for Celery Broker and Backend
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# We use SQLite for the broker and the result backend to ensure 
+# this works out-of-the-box on Windows without installing Redis!
+BROKER_URL = "sqla+sqlite:///./celery_broker.sqlite"
+BACKEND_URL = "db+sqlite:///./celery_results.sqlite"
 
 # Initialize Celery explicitly pointing to our tasks
 celery_app = Celery(
     "sentiment_worker",
-    broker=REDIS_URL,
-    backend=REDIS_URL,
+    broker=BROKER_URL,
+    backend=BACKEND_URL,
     include=["tasks"] # Module containing our background tasks
 )
 
@@ -22,4 +24,6 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    # This prevents SQLite locking issues for the broker:
+    broker_pool_limit=None, 
 )

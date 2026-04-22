@@ -11,7 +11,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+from celery_worker import celery_app
+
+@celery_app.task(bind=True)
 def run_sentiment_agent(
+    self,
     platform: str,
     target_account: str,
     api_keys: dict,
@@ -55,6 +59,7 @@ def run_sentiment_agent(
             max_comments_per_video=max_comments_per_video,
             max_videos=max_videos,
         )
+        self.update_state(state='PROGRESS', meta={'status': f'Fetched {len(raw_comments)} comments. Preprocessing...', 'processed': 0})
         logger.info(f"[TASK] Fetch done. Got {len(raw_comments)} comments.")
     except Exception as exc:
         logger.error(f"[TASK] Fetch FAILED: {exc}\n{traceback.format_exc()}")
@@ -69,6 +74,7 @@ def run_sentiment_agent(
         preprocessor = PreprocessorAgent()
         logger.info(f"[TASK] Preprocessor ready. Processing {len(raw_comments)} comments...")
         processed_comments = preprocessor.process(raw_comments)
+        self.update_state(state='PROGRESS', meta={'status': f'Preprocessed {len(processed_comments)} comments. Saving to DB...', 'processed': 0})
         logger.info(f"[TASK] Preprocessing done. {len(processed_comments)} processed.")
     except Exception as exc:
         logger.error(f"[TASK] Preprocess FAILED: {exc}\n{traceback.format_exc()}")
