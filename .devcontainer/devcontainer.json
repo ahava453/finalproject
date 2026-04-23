@@ -15,8 +15,8 @@
     ],
     "portsAttributes": {
         "5173": {
-            "label": "Frontend",
-            "onAutoForward": "notify"
+            "label": "Frontend (React)",
+            "onAutoForward": "openBrowser"
         },
         "8000": {
             "label": "FastAPI Backend",
@@ -24,6 +24,20 @@
         }
     },
     "postCreateCommand": "bash .devcontainer/setup.sh",
+    "secrets": {
+        "APIFY_API_TOKEN": {
+            "description": "Apify API Token for scraping Facebook/Instagram comments. Get a free token at https://apify.com"
+        },
+        "FACEBOOK_APP_ID": {
+            "description": "Meta App ID (optional - only needed for Meta OAuth login flow)"
+        },
+        "FACEBOOK_APP_SECRET": {
+            "description": "Meta App Secret (optional - only needed for Meta OAuth login flow)"
+        },
+        "META_VERIFY_TOKEN": {
+            "description": "Webhook verify token for Meta (optional)"
+        }
+    },
     "customizations": {
         "vscode": {
             "extensions": [
