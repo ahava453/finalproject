@@ -12,6 +12,46 @@ from googleapiclient.errors import HttpError
 
 logger = logging.getLogger(__name__)
 
+def exchange_short_lived_token(short_token: str, app_id: str, app_secret: str) -> str | None:
+    """Exchanges a short-lived user token for a long-lived one (60 days)."""
+    url = "https://graph.facebook.com/v19.0/oauth/access_token"
+    params = {
+        "grant_type": "fb_exchange_token",
+        "client_id": app_id,
+        "client_secret": app_secret,
+        "fb_exchange_token": short_token
+    }
+    try:
+        resp = requests.get(url, params=params)
+        resp.raise_for_status()
+        return resp.json().get("access_token")
+    except Exception as e:
+        logger.error(f"Failed to exchange token: {e}")
+        return None
+
+def resolve_instagram_id(target: str, access_token: str) -> str | None:
+    """Resolves an Instagram URL or handle to an instagram_business_account ID."""
+    target = target.strip().lstrip("@")
+    if "instagram.com" in target:
+        parsed = urllib.parse.urlparse(target)
+        path_parts = [p for p in parsed.path.split("/") if p]
+        if path_parts:
+            target = path_parts[-1]
+            
+    url = "https://graph.facebook.com/v19.0/me/accounts"
+    params = {"fields": "instagram_business_account", "access_token": access_token}
+    try:
+        resp = requests.get(url, params=params)
+        resp.raise_for_status()
+        pages = resp.json().get("data", [])
+        for page in pages:
+            ig_account = page.get("instagram_business_account")
+            if ig_account:
+                return ig_account.get("id")
+    except Exception as e:
+        logger.error(f"Failed to resolve Instagram ID: {e}")
+    return target # fallback
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # URL / ID Helpers
@@ -358,13 +398,12 @@ class FetcherAgent:
                 snip = item["snippet"]["topLevelComment"]["snippet"]
                 all_comments.append(
                     {
-                        "id": item["id"],
-                        "post_id": video_id,
+                        "source_id": item["id"],
+                        "parent_post_id": video_id,
                         "text": snip.get("textDisplay", ""),
                         "author": snip.get("authorDisplayName", "Unknown"),
                         "timestamp": snip.get("publishedAt", ""),
-                        "platform": "youtube",
-                        "raw_metrics": {"likes": snip.get("likeCount", 0)},
+                        "platform": "youtube"
                     }
                 )
 
@@ -378,138 +417,27 @@ class FetcherAgent:
 
     def _fetch_facebook(self, target: str, max_comments: int, max_posts: int) -> list:
         """
-        Fetch comments from a Facebook Page's posts.
-        `target` should be the Page ID.
+        Fetch comments from a Facebook Post URL using Apify.
         """
-        api_key = self.api_keys.get("facebook", "").strip()
-        if not api_key:
-            raise ValueError("Facebook Graph API token is missing.")
-
-        # Clean target if it is a URL
-        target = target.strip()
-        if "facebook.com" in target:
-            parsed = urllib.parse.urlparse(target)
-            path_parts = [p for p in parsed.path.split("/") if p]
-            if path_parts:
-                target = path_parts[-1]
-
-        # 1. Get recent posts
-        posts_url = f"https://graph.facebook.com/v19.0/{target}/feed"
-        params = {"fields": "id,message,created_time", "access_token": api_key, "limit": max_posts}
         try:
-            resp = requests.get(posts_url, params=params)
-            resp.raise_for_status()
-            posts_data = resp.json().get("data", [])
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Facebook posts fetch error: {e}")
-            raise ValueError(f"Failed to fetch Facebook posts: {e}")
-
-        all_comments = []
-        for post in posts_data:
-            post_id = post["id"]
-            comments_url = f"https://graph.facebook.com/v19.0/{post_id}/comments"
-            c_params = {"fields": "id,message,from,created_time,like_count", "access_token": api_key, "limit": 100}
-            
-            # Paging through comments for this post
-            while len(all_comments) < (max_posts * max_comments) and comments_url:
-                try:
-                    c_resp = requests.get(comments_url, params=c_params)
-                    c_resp.raise_for_status()
-                    c_data = c_resp.json()
-                    
-                    for item in c_data.get("data", []):
-                        if len(all_comments) >= (max_posts * max_comments):
-                            break
-                        
-                        author = item.get("from", {}).get("name", "Unknown")
-                        all_comments.append({
-                            "id": item["id"],
-                            "post_id": post_id,
-                            "text": item.get("message", ""),
-                            "author": author,
-                            "timestamp": item.get("created_time", ""),
-                            "platform": "facebook",
-                            "raw_metrics": {"likes": item.get("like_count", 0)}
-                        })
-                    
-                    # Next page of comments
-                    paging = c_data.get("paging", {})
-                    comments_url = paging.get("next")
-                    c_params = {} # The 'next' URL already contains all parameters
-                    
-                except requests.exceptions.RequestException as e:
-                    logger.error(f"Facebook comments fetch error for post {post_id}: {e}")
-                    break
-
-        return all_comments
+            from agents.apify_fetcher import fetch_meta_comments
+            return fetch_meta_comments(target, "facebook")
+        except Exception as e:
+            logger.error(f"Facebook Apify error: {e}")
+            raise ValueError(str(e))
 
     # ── Instagram ─────────────────────────────────────────────────────────
 
     def _fetch_instagram(self, target: str, max_comments: int, max_posts: int) -> list:
         """
-        Fetch comments from an Instagram Business/Creator account's media.
-        `target` should be the IG User ID.
+        Fetch comments from an Instagram Post URL using Apify.
         """
-        api_key = self.api_keys.get("instagram", "").strip()
-        if not api_key:
-            raise ValueError("Instagram Graph API token is missing.")
-
-        # Clean target if it is a URL or has @
-        target = target.strip()
-        if "instagram.com" in target:
-            parsed = urllib.parse.urlparse(target)
-            path_parts = [p for p in parsed.path.split("/") if p]
-            if path_parts:
-                target = path_parts[-1]
-        target = target.lstrip("@")
-
-        # 1. Get recent media
-        media_url = f"https://graph.facebook.com/v19.0/{target}/media"
-        params = {"fields": "id,caption,timestamp", "access_token": api_key, "limit": max_posts}
         try:
-            resp = requests.get(media_url, params=params)
-            resp.raise_for_status()
-            media_data = resp.json().get("data", [])
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Instagram media fetch error: {e}")
-            raise ValueError(f"Failed to fetch Instagram media: {e}")
-
-        all_comments = []
-        for media in media_data:
-            media_id = media["id"]
-            comments_url = f"https://graph.facebook.com/v19.0/{media_id}/comments"
-            c_params = {"fields": "id,text,from,timestamp,like_count", "access_token": api_key, "limit": 100}
-            
-            while len(all_comments) < (max_posts * max_comments) and comments_url:
-                try:
-                    c_resp = requests.get(comments_url, params=c_params)
-                    c_resp.raise_for_status()
-                    c_data = c_resp.json()
-                    
-                    for item in c_data.get("data", []):
-                        if len(all_comments) >= (max_posts * max_comments):
-                            break
-                        
-                        author = item.get("from", {}).get("username", "Unknown") if "from" in item else "Unknown"
-                        all_comments.append({
-                            "id": item["id"],
-                            "post_id": media_id,
-                            "text": item.get("text", ""),
-                            "author": author,
-                            "timestamp": item.get("timestamp", ""),
-                            "platform": "instagram",
-                            "raw_metrics": {"likes": item.get("like_count", 0)}
-                        })
-                    
-                    paging = c_data.get("paging", {})
-                    comments_url = paging.get("next")
-                    c_params = {}
-                    
-                except requests.exceptions.RequestException as e:
-                    logger.error(f"Instagram comments fetch error for media {media_id}: {e}")
-                    break
-
-        return all_comments
+            from agents.apify_fetcher import fetch_meta_comments
+            return fetch_meta_comments(target, "instagram")
+        except Exception as e:
+            logger.error(f"Instagram Apify error: {e}")
+            raise ValueError(str(e))
 
     # ── Mock fallback ─────────────────────────────────────────────────────
 

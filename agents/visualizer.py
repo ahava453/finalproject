@@ -59,17 +59,28 @@ class VisualizerAgent:
         avg_sentiment = sum(c.get("sentiment_score", 0.5) for c in processed_comments) / len(
             processed_comments
         )
+        
+        # ── 6. Business Intelligence Summary ───────────────────────────────
+        positive_pct = round(sentiment_counts.get("positive", 0) / len(processed_comments) * 100, 1)
+        negative_pct = round(sentiment_counts.get("negative", 0) / len(processed_comments) * 100, 1)
+        
+        platforms = list(platform_counts.keys())
+        platform_str = " across " + " and ".join(platforms) if platforms else ""
+        
+        bi_summary = f"Sentiment{platform_str} is {positive_pct}% positive."
+        if negative_pct > 20:
+            bi_summary += f" However, {sentiment_counts.get('negative', 0)} comments expressed negative feedback that should be reviewed."
+        elif top_keywords:
+            top_word = top_keywords[0][0]
+            bi_summary += f" The most frequently mentioned keyword is '{top_word}'."
 
         return {
             "summary": {
                 "total_comments": len(processed_comments),
                 "avg_sentiment": round(avg_sentiment, 4),
-                "positive_pct": round(
-                    sentiment_counts.get("positive", 0) / len(processed_comments) * 100, 1
-                ),
-                "negative_pct": round(
-                    sentiment_counts.get("negative", 0) / len(processed_comments) * 100, 1
-                ),
+                "positive_pct": positive_pct,
+                "negative_pct": negative_pct,
+                "bi_summary": bi_summary,
             },
             "charts": {
                 "sentiment_pie": [

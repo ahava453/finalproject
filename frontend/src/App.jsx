@@ -25,18 +25,21 @@ const PLATFORM_META = {
     placeholder: '...',
     keyLabel: 'YouTube Data API Key',
     keyPlaceholder: '...',
+    docLink: { href: 'https://developers.google.com/youtube/v3/getting-started', text: 'Get YouTube API Key' },
   },
   facebook: {
     hint: 'Facebook Page URL or Post URL',
     placeholder: '...',
-    keyLabel: 'Facebook Access Token',
+    keyLabel: 'Apify API Token (Optional if in .env)',
     keyPlaceholder: '...',
+    docLink: { href: 'https://docs.apify.com/api/v2#/introduction/authentication', text: 'How to get Apify Token' },
   },
   instagram: {
     hint: 'Instagram handle or media URL',
     placeholder: '...',
-    keyLabel: 'Instagram Access Token',
+    keyLabel: 'Apify API Token (Optional if in .env)',
     keyPlaceholder: '...',
+    docLink: { href: 'https://docs.apify.com/api/v2#/introduction/authentication', text: 'How to get Apify Token' },
   },
 };
 
@@ -287,6 +290,13 @@ export default function App() {
             <CheckCircle size={18} />{statusMsg}
           </div>
         )}
+        
+        {summary.bi_summary && (
+          <div className="bi-summary-card" style={{ padding: '20px', backgroundColor: 'var(--bg-secondary)', borderRadius: '12px', marginBottom: '24px', border: '1px solid var(--border)' }}>
+            <h3 style={{ marginBottom: '8px', color: 'var(--text-primary)' }}>🤖 Business Intelligence Summary</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '1.1em', lineHeight: '1.5' }}>{summary.bi_summary}</p>
+          </div>
+        )}
 
         <div className="summary-cards">
           <div className="card">
@@ -443,7 +453,7 @@ export default function App() {
         <section className="api-section">
           <form onSubmit={handleAnalyze} className="config-form">
 
-            {/* API key only — no URL input */}
+            {/* Always show input so user can put Apify API Token if they want */}
             <div className="form-group">
               <label>{PLATFORM_META[activePlatform].keyLabel}</label>
               <div className="api-input-container">
@@ -469,13 +479,31 @@ export default function App() {
                 <button type="button" className="inline-link" onClick={() => setSettingsOpen(true)}>
                   change
                 </button>
+                <span style={{ color: 'var(--border)' }}>|</span>
+                <a
+                  href={PLATFORM_META[activePlatform].docLink.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="doc-link"
+                >
+                  {PLATFORM_META[activePlatform].docLink.text}
+                </a>
               </div>
             ) : (
-              <div style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                 <button type="button" className="inline-link"
                   style={{ fontSize: '0.88em' }} onClick={() => setSettingsOpen(true)}>
                   ⚙️ Set target account first
                 </button>
+                <span style={{ color: 'var(--border)', fontSize: '0.8rem' }}>|</span>
+                <a
+                  href={PLATFORM_META[activePlatform].docLink.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="doc-link"
+                >
+                  {PLATFORM_META[activePlatform].docLink.text}
+                </a>
               </div>
             )}
 

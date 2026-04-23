@@ -114,6 +114,58 @@ def clear_platform_data(platform: str, db: Session = Depends(get_db)):
     db.commit()
     return {"message": f"Cleared {deleted} records for '{platform}'."}
 
+# ── Meta Integration Routes ──────────────────────────────────────────────────
+
+from fastapi import Request, HTTPException, status
+from fastapi.responses import RedirectResponse
+import os
+from dotenv import load_dotenv
+
+@app.get("/api/auth/meta")
+def auth_meta():
+    """Redirect user to Meta OAuth login."""
+    load_dotenv(override=True)
+    FACEBOOK_APP_ID = os.environ.get("FACEBOOK_APP_ID")
+    FACEBOOK_REDIRECT_URI = os.environ.get("FACEBOOK_REDIRECT_URI", "http://localhost:8000/api/auth/meta/callback")
+    
+    if not FACEBOOK_APP_ID:
+        raise HTTPException(status_code=500, detail="FACEBOOK_APP_ID is not configured in the .env file.")
+    oauth_url = f"https://www.facebook.com/v19.0/dialog/oauth?client_id={FACEBOOK_APP_ID}&redirect_uri={FACEBOOK_REDIRECT_URI}&scope=pages_show_list,instagram_basic,instagram_manage_comments,pages_read_engagement"
+    return RedirectResponse(oauth_url)
+
+@app.get("/api/auth/meta/callback")
+def auth_meta_callback(code: str = None):
+    """Handle Meta OAuth callback and exchange code for short-lived token."""
+    if not code:
+        raise HTTPException(status_code=400, detail="Authorization code missing")
+    return {"message": "OAuth successful. Code received.", "code": code}
+
+@app.get("/webhook/meta")
+def verify_meta_webhook(request: Request):
+    """Meta Webhook Handshake Verification."""
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+
+    if mode and token:
+        if mode == "subscribe" and token == META_VERIFY_TOKEN:
+            return int(challenge)
+        raise HTTPException(status_code=403, detail="Verification failed")
+    raise HTTPException(status_code=400, detail="Missing parameters")
+
+from tasks import process_webhook_event
+
+@app.post("/webhook/meta")
+async def handle_meta_webhook(request: Request):
+    """Receive live events from Meta Webhooks and dispatch to Celery."""
+    payload = await request.json()
+    if payload.get("object") in ["page", "instagram"]:
+        # Dispatch to async queue
+        process_webhook_event.delay(payload)
+        return {"status": "EVENT_RECEIVED"}
+    raise HTTPException(status_code=404, detail="Unrecognized object type")
+
+
 
 @app.get("/api/dashboard/{platform}")
 def get_dashboard_data(platform: str, db: Session = Depends(get_db)):

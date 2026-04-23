@@ -466,6 +466,23 @@ body {
   color: #79c0ff;
 }
 
+/* Documentation helper links */
+.doc-link {
+  color: var(--accent);
+  font-size: 0.8rem;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: color 0.15s ease, text-decoration 0.15s ease;
+}
+
+.doc-link:hover {
+  color: #79c0ff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* Icon-only button */
 .icon-btn {
   background: none;

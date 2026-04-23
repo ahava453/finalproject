@@ -2,6 +2,7 @@ import torch
 # If using transformers (pip install transformers)
 from transformers import pipeline
 from typing import Dict, Any
+import emoji
 
 class SentimentAnalyzerAgent:
     def __init__(self):
@@ -16,7 +17,17 @@ class SentimentAnalyzerAgent:
             device=0 if self.device == "cuda" else -1
         )
 
-    def analyze_text(self, text: str) -> Dict[str, Any]:
+    def preprocess_text(self, text: str) -> str:
+        """Emoji-to-Text preprocessing to improve NLP accuracy on social media slang."""
+        # Convert emojis to their text representation, e.g., 🔥 -> :fire:
+        text = emoji.demojize(text, delimiters=(" ", " "))
+        # Replace underscores with spaces for the model
+        text = text.replace("_", " ")
+        # Basic cleanup
+        return " ".join(text.split())
+
+    def analyze_text(self, raw_text: str) -> Dict[str, Any]:
+        text = self.preprocess_text(raw_text)
         # Run the text through the PyTorch model
         # pipeline returns a list of dicts, so we take the first element.
         result: Dict[str, Any] = self.sentiment_model(text)[0] # type: ignore
