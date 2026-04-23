@@ -49,10 +49,18 @@ def run_sentiment_agent(
         logger.error(f"[TASK] Agent import FAILED: {exc}\n{traceback.format_exc()}")
         return {"status": "error", "message": str(exc)}
 
-    # ── 1. Fetch ────────────────────────────────────────────────────────
+    # ── 1. Fetch ────────────────────────────────────────────────────────────
     try:
         fetcher = FetcherAgent(api_keys=api_keys)
         logger.info("[TASK] Fetcher initialised, calling fetch_comments...")
+
+        # Give the UI immediate feedback before the (potentially slow) Apify call
+        if platform in ("facebook", "instagram"):
+            self.update_state(
+                state='PROGRESS',
+                meta={'status': f'Scraping {platform} comments via Apify... this may take 30-60 seconds.', 'processed': 0}
+            )
+
         raw_comments = fetcher.fetch_comments(
             platform,
             target_account,

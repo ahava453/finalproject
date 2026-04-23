@@ -53,9 +53,16 @@ class AnalysisRequest(BaseModel):
 @app.post("/api/analyze")
 def trigger_analysis(request: AnalysisRequest):
     """Trigger the Multi-Agent Pipeline via Celery."""
-    api_keys = {request.platform: request.api_key}
-    
-    # Dispatch task to Celery
+    # For YouTube: api_key is the YT Data API key.
+    # For Facebook/Instagram: api_key is the Apify token (optional — falls back to .env).
+    api_keys = {
+        request.platform: request.api_key,
+        # Always populate both meta keys so the fetcher can pick up the token
+        # regardless of whether the user is on the facebook or instagram tab.
+        "facebook": request.api_key if request.platform in ("facebook", "instagram") else "",
+        "instagram": request.api_key if request.platform in ("facebook", "instagram") else "",
+    }
+
     task = run_sentiment_agent.delay(
         request.platform,
         request.target_account,
@@ -63,7 +70,7 @@ def trigger_analysis(request: AnalysisRequest):
         request.max_videos,
         request.max_comments_per_video,
     )
-    
+
     return {
         "message": (
             f"Multi-Agent pipeline dispatched for {request.platform} "

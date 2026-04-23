@@ -418,10 +418,12 @@ class FetcherAgent:
     def _fetch_facebook(self, target: str, max_comments: int, max_posts: int) -> list:
         """
         Fetch comments from a Facebook Post URL using Apify.
+        Token comes from ui api_key field or falls back to APIFY_API_TOKEN in .env.
         """
         try:
             from agents.apify_fetcher import fetch_meta_comments
-            return fetch_meta_comments(target, "facebook")
+            ui_token = self.api_keys.get("facebook", "").strip() or None
+            return fetch_meta_comments(target, "facebook", apify_token=ui_token)
         except Exception as e:
             logger.error(f"Facebook Apify error: {e}")
             raise ValueError(str(e))
@@ -431,10 +433,12 @@ class FetcherAgent:
     def _fetch_instagram(self, target: str, max_comments: int, max_posts: int) -> list:
         """
         Fetch comments from an Instagram Post URL using Apify.
+        Token comes from ui api_key field or falls back to APIFY_API_TOKEN in .env.
         """
         try:
             from agents.apify_fetcher import fetch_meta_comments
-            return fetch_meta_comments(target, "instagram")
+            ui_token = self.api_keys.get("instagram", "").strip() or None
+            return fetch_meta_comments(target, "instagram", apify_token=ui_token)
         except Exception as e:
             logger.error(f"Instagram Apify error: {e}")
             raise ValueError(str(e))
