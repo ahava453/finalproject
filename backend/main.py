@@ -150,13 +150,20 @@ def auth_meta_callback(code: str = None):
 @app.get("/webhook/meta")
 def verify_meta_webhook(request: Request):
     """Meta Webhook Handshake Verification."""
+    # Load verification token from environment (safe default for local testing)
+    load_dotenv(override=False)
+    META_VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "mock_verify_token")
+
     mode = request.query_params.get("hub.mode")
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
 
     if mode and token:
         if mode == "subscribe" and token == META_VERIFY_TOKEN:
-            return int(challenge)
+            try:
+                return int(challenge)
+            except Exception:
+                return challenge
         raise HTTPException(status_code=403, detail="Verification failed")
     raise HTTPException(status_code=400, detail="Missing parameters")
 

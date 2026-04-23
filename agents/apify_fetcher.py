@@ -1,6 +1,5 @@
 import os
 import logging
-from apify_client import ApifyClient
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
@@ -33,6 +32,13 @@ def fetch_meta_comments(
             "Either paste it into the API Token field in the UI, "
             "or add APIFY_API_TOKEN to your .env file (or Codespaces Secrets)."
         )
+
+    try:
+        from apify_client import ApifyClient
+    except Exception as e:
+        raise ValueError(
+            "Missing 'apify-client' package. Install with 'pip install apify-client'"
+        ) from e
 
     client = ApifyClient(token)
 

@@ -7,8 +7,9 @@ import socket
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+# NOTE: google-api-python-client is an optional runtime dependency used only
+# by the YouTube fetcher. Import it lazily inside the YouTube methods so the
+# module can be imported in environments where that package is not installed.
 
 logger = logging.getLogger(__name__)
 
@@ -176,6 +177,14 @@ class FetcherAgent:
         api_key = self.api_keys.get("youtube", "").strip()
         if not api_key:
             raise ValueError("YouTube API key is missing.")
+
+        try:
+            from googleapiclient.discovery import build
+            from googleapiclient.errors import HttpError
+        except Exception as e:
+            raise ValueError(
+                "Missing 'google-api-python-client'. Install with 'pip install google-api-python-client'"
+            ) from e
 
         youtube = build("youtube", "v3", developerKey=api_key)
 
