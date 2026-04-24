@@ -107,6 +107,10 @@ def get_task_status(job_id: str):
     if task_result.info and isinstance(task_result.info, dict):
         state["processed"] = task_result.info.get("processed", 0)
         state["status_message"] = task_result.info.get("status", state["status_message"])
+        # If the task returned an error payload (logged as a successful task returning an error dict),
+        # surface it to the frontend so users see the reason instead of a silent timeout.
+        if task_result.info.get("status") == "error":
+            state["error"] = task_result.info.get("message")
         
     if task_result.state == "FAILURE":
         state["error"] = str(task_result.info)

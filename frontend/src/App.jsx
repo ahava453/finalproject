@@ -58,6 +58,8 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState('');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [samplesOpen, setSamplesOpen] = useState(false);
+  const [errorDetail, setErrorDetail] = useState(null);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
 
   const elapsedRef = useRef(null);
   const pollRef = useRef(null);
@@ -87,6 +89,7 @@ export default function App() {
       setStatusMsg('✅ Analysis complete — dashboard updated!');
     } catch {
       setError('Analysis finished but failed to load dashboard. Try refreshing.');
+      setErrorDetail(null);
     } finally {
       setLoading(false);
       clearTimers();
@@ -116,7 +119,10 @@ export default function App() {
 
           if (state.done) {
             if (state.error) {
-              setError(`Analysis error: ${state.error}`);
+              const errText = typeof state.error === 'string' ? state.error : JSON.stringify(state.error, null, 2);
+              setError(`Analysis error: ${typeof state.error === 'string' ? state.error : (state.error.message || 'Details available')}`);
+              setErrorDetail(errText);
+              setShowErrorDetails(true);
               setLoading(false);
               clearTimers();
             } else {
@@ -143,19 +149,24 @@ export default function App() {
     if (!target.trim()) {
       setSettingsOpen(true);
       setError(`⚙️ Configure your ${activePlatform} target in Settings first.`);
+      setErrorDetail(null);
       return;
     }
     // Require an API key for all platforms (YouTube key, or Apify token for FB/IG)
     if ((activePlatform === 'youtube' || activePlatform === 'facebook' || activePlatform === 'instagram') && !apiKey.trim()) {
       if (activePlatform === 'youtube') {
         setError('⚠️ Please enter your YouTube API key.');
+        setErrorDetail(null);
       } else {
         setError('⚠️ Please enter your Apify API token for Facebook/Instagram.');
+        setErrorDetail(null);
       }
       return;
     }
 
     setError('');
+    setErrorDetail(null);
+    setShowErrorDetails(false);
     setStatusMsg('');
     setLoading(true);
     setDashboardData(null);
@@ -183,6 +194,7 @@ export default function App() {
       pollForResults(activePlatform, data.job_id);
     } catch (err) {
       setError(err.message || 'Failed to connect to backend.');
+      setErrorDetail(err.stack || null);
       setLoading(false);
       clearTimers();
     }
@@ -191,6 +203,7 @@ export default function App() {
   const handleManualRefresh = async () => {
     setLoading(true);
     setError('');
+    setErrorDetail(null);
     await loadDashboard(activePlatform);
   };
 
@@ -202,8 +215,10 @@ export default function App() {
       setDashboardData(null);
       setStatusMsg('');
       setError(`🗑️ ${data.message}`);
+      setErrorDetail(null);
     } catch {
       setError('Failed to clear data.');
+      setErrorDetail(null);
     }
   };
 
@@ -550,8 +565,19 @@ export default function App() {
             )}
 
             {error && (
-              <div className="error-message">
-                <AlertCircle size={16} /> {error}
+              <div>
+                <div className="error-message">
+                  <AlertCircle size={16} /> {error}
+                </div>
+                {showErrorDetails && errorDetail && (
+                  <div className="error-details">
+                    <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{errorDetail}</pre>
+                    <div className="error-actions" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
+                      <button type="button" className="inline-link" onClick={() => navigator.clipboard?.writeText(errorDetail)}>Copy details</button>
+                      <button type="button" className="inline-link" onClick={() => { setShowErrorDetails(false); setError(''); setErrorDetail(null); }}>Dismiss</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
