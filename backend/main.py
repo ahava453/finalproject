@@ -29,6 +29,8 @@ app.add_middleware(
 )
 
 Base.metadata.create_all(bind=engine)
+from database import ensure_sqlite_schema
+ensure_sqlite_schema()
 
 from celery.result import AsyncResult
 from celery_worker import celery_app
