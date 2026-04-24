@@ -16,13 +16,20 @@ This repository is fully configured for GitHub Codespaces. When you open it in a
    source .venv/bin/activate
    uvicorn main:app --reload --port 8000
    ```
-5. **Start the Frontend:**
-   Open a **second terminal** (using the `+` icon) and run:
+5. **Start the Celery worker:**
+   Open a second terminal and run:
+   ```bash
+   cd backend
+   source .venv/bin/activate
+   celery -A celery_worker.celery_app worker --loglevel=info
+   ```
+6. **Start the Frontend:**
+   Open a **third terminal** and run:
    ```bash
    cd frontend
    npm run dev
    ```
-6. A popup will appear in the bottom right asking you to open the forwarded port `5173`. Click **Open in Browser** to view the live app!
+7. A popup will appear in the bottom right asking you to open the forwarded port `5173`. Click **Open in Browser** to view the live app!
 
 ## 💻 Running Locally
 
@@ -36,6 +43,13 @@ python -m venv .venv
 pip install -r requirements.txt
 pip install transformers torch torchvision torchaudio
 uvicorn main:app --reload --port 8000
+```
+
+### Start the Celery worker
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+celery -A celery_worker.celery_app worker --loglevel=info
 ```
 
 ### Frontend Setup
