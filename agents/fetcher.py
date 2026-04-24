@@ -13,6 +13,13 @@ from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
+try:
+    from agents.normalizer import normalize_comments
+except Exception:
+    # lazy import fallback in case module not present during tests
+    def normalize_comments(x):
+        return x
+
 def exchange_short_lived_token(short_token: str, app_id: str, app_secret: str) -> str | None:
     """Exchanges a short-lived user token for a long-lived one (60 days)."""
     url = "https://graph.facebook.com/v19.0/oauth/access_token"
@@ -118,6 +125,47 @@ def _looks_like_channel(text: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Facebook / Instagram URL helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _is_instagram_post_url(url: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(url)
+        path = parsed.path.lower()
+        return any(segment in path for segment in ("/p/", "/reel/", "/reels/", "/tv/", "/media"))
+    except Exception:
+        return False
+
+
+def _is_instagram_account_url(url: str) -> bool:
+    if "instagram.com" not in (url or ""):
+        return False
+    return not _is_instagram_post_url(url)
+
+
+def _is_facebook_post_url(url: str) -> bool:
+    try:
+        lu = (url or "").lower()
+        parsed = urllib.parse.urlparse(url)
+        path = parsed.path.lower()
+        return (
+            "/posts/" in path
+            or "/photos/" in path
+            or "/videos/" in path
+            or "permalink.php" in lu
+            or "story_fbid=" in lu
+        )
+    except Exception:
+        return False
+
+
+def _is_facebook_account_url(url: str) -> bool:
+    if "facebook.com" not in (url or ""):
+        return False
+    return not _is_facebook_post_url(url)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # FetcherAgent
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -154,11 +202,21 @@ class FetcherAgent:
             raise ValueError(f"Platform '{platform}' not supported.")
 
         if platform == "youtube":
-            return self._fetch_youtube(target, max_comments_per_video, max_videos)
+            raw = self._fetch_youtube(target, max_comments_per_video, max_videos)
         elif platform == "facebook":
-            return self._fetch_facebook(target, max_comments_per_video, max_videos)
+            raw = self._fetch_facebook(target, max_comments_per_video, max_videos)
         elif platform == "instagram":
-            return self._fetch_instagram(target, max_comments_per_video, max_videos)
+            raw = self._fetch_instagram(target, max_comments_per_video, max_videos)
+        else:
+            raw = self._mock_data(platform, max_comments_per_video)
+
+        try:
+            normalized = normalize_comments(raw or [])
+            logger.info(f"FetcherAgent: Normalized {len(normalized)} comments for {platform}")
+            return normalized
+        except Exception as e:
+            logger.error(f"Normalization failed: {e}")
+            return raw
 
         logger.warning(
             f"Real fetching not yet implemented for {platform}. Using mock data."
@@ -213,10 +271,51 @@ class FetcherAgent:
         done = 0
         api_key = self.api_keys.get("youtube", "").strip()
 
+        # Determine recent video IDs using search.list for better coverage of Shorts
+        recent_video_ids = self._get_recent_video_ids(youtube, channel_id, max_videos)
+        if recent_video_ids:
+            video_ids = recent_video_ids
+
+        # Fetch contentDetails to detect durations (for Shorts detection)
+        durations: Dict[str, float] = {}
+        def _parse_iso8601_duration(d: str) -> float:
+            # Simple ISO 8601 PT#H#M#S parser
+            if not d:
+                return 0.0
+            m = re.match(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", d)
+            if not m:
+                return 0.0
+            h = int(m.group(1) or 0)
+            mm = int(m.group(2) or 0)
+            s = int(m.group(3) or 0)
+            return float(h * 3600 + mm * 60 + s)
+
+        try:
+            # videos().list accepts up to 50 IDs per call
+            for i in range(0, len(video_ids), 50):
+                batch = video_ids[i : i + 50]
+                resp = youtube.videos().list(part="contentDetails", id=",".join(batch)).execute()
+                for it in resp.get("items", []):
+                    vid = it.get("id")
+                    iso = it.get("contentDetails", {}).get("duration")
+                    durations[vid] = _parse_iso8601_duration(iso)
+        except Exception:
+            # Non-fatal — duration detection is best-effort
+            pass
+
         def _worker(vid: str) -> list:
             """Each thread owns its own YouTube client to avoid shared-state issues."""
             yt = build("youtube", "v3", developerKey=api_key)
-            return self._fetch_comments_for_video(yt, vid, max_comments_per_video)
+            comments = self._fetch_comments_for_video(yt, vid, max_comments_per_video)
+            # annotate with duration_seconds if available
+            dur = durations.get(vid)
+            if dur is not None:
+                for c in comments:
+                    try:
+                        c["duration_seconds"] = dur
+                    except Exception:
+                        pass
+            return comments
 
         with ThreadPoolExecutor(max_workers=self._WORKERS) as pool:
             future_to_vid = {pool.submit(_worker, vid): vid for vid in video_ids}
@@ -380,6 +479,35 @@ class FetcherAgent:
 
         return video_ids
 
+
+    def _get_recent_video_ids(self, youtube, channel_id: str, max_videos: int) -> list[str]:
+        """Use search.list to find the most recent `max_videos` videos from a channel."""
+        video_ids: list[str] = []
+        try:
+            resp = youtube.search().list(
+                part="id",
+                channelId=channel_id,
+                order="date",
+                type="video",
+                maxResults=min(50, max_videos),
+            ).execute()
+            for item in resp.get("items", []):
+                vid = item.get("id", {}).get("videoId")
+                if vid:
+                    video_ids.append(vid)
+        except Exception as exc:
+            logger.error(f"YouTube search.list error: {exc}")
+
+        # If we didn't get enough items, fallback to uploads playlist method
+        if len(video_ids) < max_videos:
+            more = self._get_all_video_ids(youtube, channel_id, max_videos)
+            # Merge while preserving order and uniqueness
+            for v in more:
+                if v not in video_ids:
+                    video_ids.append(v)
+
+        return video_ids
+
     # ── Comments for one video ────────────────────────────────────────────
 
     def _fetch_comments_for_video(
@@ -426,13 +554,19 @@ class FetcherAgent:
 
     def _fetch_facebook(self, target: str, max_comments: int, max_posts: int) -> list:
         """
-        Fetch comments from a Facebook Post URL using Apify.
-        Token comes from ui api_key field or falls back to APIFY_API_TOKEN in .env.
+        Fetch comments from a Facebook Page account URL using Apify.
+        This function expects an account (page) URL, not a single post URL.
+        Token must be provided via the UI `api_keys` (Apify token) — no silent fallback.
         """
         try:
             from agents.apify_fetcher import fetch_meta_comments
+            apify_opts = self.api_keys.get("apify_options") if isinstance(self.api_keys.get("apify_options"), dict) else None
             ui_token = self.api_keys.get("facebook", "").strip() or None
-            return fetch_meta_comments(target, "facebook", apify_token=ui_token)
+            if not _is_facebook_account_url(target):
+                raise ValueError(
+                    "Facebook fetcher expects a Facebook Page account URL (not a single post URL). Example: https://www.facebook.com/nasa"
+                )
+            return fetch_meta_comments(target, "facebook", apify_token=ui_token, results_limit=max_posts, apify_options=apify_opts)
         except Exception as e:
             logger.error(f"Facebook Apify error: {e}")
             raise ValueError(str(e))
@@ -441,13 +575,19 @@ class FetcherAgent:
 
     def _fetch_instagram(self, target: str, max_comments: int, max_posts: int) -> list:
         """
-        Fetch comments from an Instagram Post URL using Apify.
-        Token comes from ui api_key field or falls back to APIFY_API_TOKEN in .env.
+        Fetch comments from an Instagram profile (account) URL using Apify.
+        This function expects an account/profile URL, not a single media post URL.
+        Token must be provided via the UI `api_keys` (Apify token) — no silent fallback.
         """
         try:
             from agents.apify_fetcher import fetch_meta_comments
+            apify_opts = self.api_keys.get("apify_options") if isinstance(self.api_keys.get("apify_options"), dict) else None
             ui_token = self.api_keys.get("instagram", "").strip() or None
-            return fetch_meta_comments(target, "instagram", apify_token=ui_token)
+            if not _is_instagram_account_url(target):
+                raise ValueError(
+                    "Instagram fetcher expects an Instagram account/profile URL (not a single post URL). Example: https://www.instagram.com/natgeo/"
+                )
+            return fetch_meta_comments(target, "instagram", apify_token=ui_token, results_limit=max_posts, apify_options=apify_opts)
         except Exception as e:
             logger.error(f"Instagram Apify error: {e}")
             raise ValueError(str(e))

@@ -11,3 +11,5 @@ transformers==5.6.1
 tokenizers==0.22.2
 torch==2.11.0
 emoji==2.15.0
+apify-client
+google-api-python-client

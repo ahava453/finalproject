@@ -145,8 +145,13 @@ export default function App() {
       setError(`⚙️ Configure your ${activePlatform} target in Settings first.`);
       return;
     }
-    if (!apiKey.trim()) {
-      setError('⚠️ Please enter your API key.');
+    // Require an API key for all platforms (YouTube key, or Apify token for FB/IG)
+    if ((activePlatform === 'youtube' || activePlatform === 'facebook' || activePlatform === 'instagram') && !apiKey.trim()) {
+      if (activePlatform === 'youtube') {
+        setError('⚠️ Please enter your YouTube API key.');
+      } else {
+        setError('⚠️ Please enter your Apify API token for Facebook/Instagram.');
+      }
       return;
     }
 
@@ -202,6 +207,39 @@ export default function App() {
     }
   };
 
+  const ProgressStepper = ({ statusMsg }) => {
+    const steps = [
+      "Connecting to Platform...",
+      "Identifying Posts/Reels...",
+      "Analyzing Sentiment...",
+    ];
+
+    const normalize = (s = "") => (s || "").toLowerCase();
+
+    let active = 0;
+    const s = normalize(statusMsg);
+    if (s.includes("preprocess") || s.includes("preprocessed") || s.includes("analy")) active = 2;
+    else if (s.includes("scrap") || s.includes("fetch") || s.includes("identif")) active = 1;
+    else active = 0;
+
+    return (
+      <div style={{ display: 'flex', gap: 12, marginTop: 12, marginBottom: 8 }}>
+        {steps.map((label, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 18,
+              height: 18,
+              borderRadius: 9,
+              background: i <= active ? '#10b981' : '#374151',
+              display: 'inline-block'
+            }} />
+            <div style={{ color: i <= active ? '#10b981' : '#9ca3af', fontSize: 12 }}>{label}</div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
   /* ── Settings panel ────────────────────────────────────────── */
   const SettingsPanel = () => (
     <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
@@ -254,6 +292,10 @@ export default function App() {
         <p style={{ fontWeight: 600, fontSize: '1.1em' }}>
           Multi-Agent Pipeline Running… ({elapsedSeconds}s)
         </p>
+
+        {/* Progress stepper */}
+        <ProgressStepper statusMsg={statusMsg} />
+
         {statusMsg && (
           <p style={{ fontSize: '0.88em', color: 'var(--text-secondary)', marginTop: 8 }}>
             {statusMsg}

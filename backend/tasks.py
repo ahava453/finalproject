@@ -106,6 +106,7 @@ def run_sentiment_agent(
                 source_id=src_id,
                 parent_post_id=parent_id,
                 content_text=comment["clean_text"],
+                content_type=comment.get("content_type"),
                 sentiment_score=comment["sentiment_score"],
                 sentiment_label=comment["sentiment_label"]
             )
