@@ -198,6 +198,19 @@ class FetcherAgent:
     ) -> list:
         logger.info(f"FetcherAgent: Fetching {platform} | {target}")
 
+        # Quick demo/mock mode: if the caller passes a special demo target
+        # (e.g. 'demo', 'mock', or 'sample'), return deterministic mock data
+        # so the full pipeline can be exercised end-to-end without external
+        # API keys or network calls.
+        if str(target or '').strip().lower() in ("demo", "mock", "sample"):
+            logger.info("FetcherAgent: DEMO mode active — returning mock data")
+            raw = self._mock_data(platform, max_comments_per_video)
+            try:
+                normalized = normalize_comments(raw or [])
+                return normalized
+            except Exception:
+                return raw
+
         if platform not in self.platforms:
             raise ValueError(f"Platform '{platform}' not supported.")
 
