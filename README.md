@@ -9,27 +9,33 @@ This repository is fully configured for GitHub Codespaces. When you open it in a
 1. Click the green **Code** button on the GitHub repository.
 2. Select the **Codespaces** tab and click **Create codespace on main**.
 3. Once the Codespace opens, the `.devcontainer/setup.sh` script will automatically install all frontend and backend dependencies. Wait for the terminal to say "Setup Complete!".
-4. **Start the Backend:**
-   Open a terminal in the Codespace and run:
+4. **Start the app locally using the helper script:**
+   From the repository root, run:
    ```bash
-   cd backend
-   source .venv/bin/activate
-   uvicorn main:app --reload --port 8000
+   chmod +x run-local.sh
+   ./run-local.sh
    ```
-5. **Start the Celery worker:**
-   Open a second terminal and run:
-   ```bash
-   cd backend
-   source .venv/bin/activate
-   celery -A celery_worker.celery_app worker --loglevel=info
-   ```
-6. **Start the Frontend:**
-   Open a **third terminal** and run:
-   ```bash
-   cd frontend
-   npm run dev
-   ```
-7. A popup will appear in the bottom right asking you to open the forwarded port `5173`. Click **Open in Browser** to view the live app!
+   This starts the backend API, the Celery worker, and the frontend together.
+
+5. If you prefer to start each process manually, use these commands instead:
+   - Backend:
+     ```bash
+     cd backend
+     source .venv/bin/activate
+     uvicorn main:app --reload --port 8000
+     ```
+   - Celery worker:
+     ```bash
+     cd backend
+     source .venv/bin/activate
+     celery -A celery_worker.celery_app worker --loglevel=info
+     ```
+   - Frontend:
+     ```bash
+     cd frontend
+     npm run dev
+     ```
+6. A popup will appear in the bottom right asking you to open the forwarded port `5173`. Click **Open in Browser** to view the live app!
 
 ## 💻 Running Locally
 
