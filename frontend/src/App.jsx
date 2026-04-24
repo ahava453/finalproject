@@ -10,7 +10,7 @@ import {
 } from 'recharts';
 import './index.css';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = '/api';
 
 /* ─── Default channel targets saved per platform ─── */
 const DEFAULT_TARGETS = {
@@ -58,6 +58,8 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState('');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [samplesOpen, setSamplesOpen] = useState(false);
+  const [errorDetail, setErrorDetail] = useState(null);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
 
   const elapsedRef = useRef(null);
   const pollRef = useRef(null);
@@ -87,6 +89,7 @@ export default function App() {
       setStatusMsg('✅ Analysis complete — dashboard updated!');
     } catch {
       setError('Analysis finished but failed to load dashboard. Try refreshing.');
+      setErrorDetail(null);
     } finally {
       setLoading(false);
       clearTimers();
@@ -116,7 +119,10 @@ export default function App() {
 
           if (state.done) {
             if (state.error) {
-              setError(`Analysis error: ${state.error}`);
+              const errText = typeof state.error === 'string' ? state.error : JSON.stringify(state.error, null, 2);
+              setError(`Analysis error: ${typeof state.error === 'string' ? state.error : (state.error.message || 'Details available')}`);
+              setErrorDetail(errText);
+              setShowErrorDetails(true);
               setLoading(false);
               clearTimers();
             } else {
@@ -143,14 +149,24 @@ export default function App() {
     if (!target.trim()) {
       setSettingsOpen(true);
       setError(`⚙️ Configure your ${activePlatform} target in Settings first.`);
+      setErrorDetail(null);
       return;
     }
-    if (!apiKey.trim()) {
-      setError('⚠️ Please enter your API key.');
+    // Require an API key for all platforms (YouTube key, or Apify token for FB/IG)
+    if ((activePlatform === 'youtube' || activePlatform === 'facebook' || activePlatform === 'instagram') && !apiKey.trim()) {
+      if (activePlatform === 'youtube') {
+        setError('⚠️ Please enter your YouTube API key.');
+        setErrorDetail(null);
+      } else {
+        setError('⚠️ Please enter your Apify API token for Facebook/Instagram.');
+        setErrorDetail(null);
+      }
       return;
     }
 
     setError('');
+    setErrorDetail(null);
+    setShowErrorDetails(false);
     setStatusMsg('');
     setLoading(true);
     setDashboardData(null);
@@ -178,6 +194,7 @@ export default function App() {
       pollForResults(activePlatform, data.job_id);
     } catch (err) {
       setError(err.message || 'Failed to connect to backend.');
+      setErrorDetail(err.stack || null);
       setLoading(false);
       clearTimers();
     }
@@ -186,6 +203,7 @@ export default function App() {
   const handleManualRefresh = async () => {
     setLoading(true);
     setError('');
+    setErrorDetail(null);
     await loadDashboard(activePlatform);
   };
 
@@ -197,10 +215,45 @@ export default function App() {
       setDashboardData(null);
       setStatusMsg('');
       setError(`🗑️ ${data.message}`);
+      setErrorDetail(null);
     } catch {
       setError('Failed to clear data.');
+      setErrorDetail(null);
     }
   };
+
+  const ProgressStepper = ({ statusMsg }) => {
+    const steps = [
+      "Connecting to Platform...",
+      "Identifying Posts/Reels...",
+      "Analyzing Sentiment...",
+    ];
+
+    const normalize = (s = "") => (s || "").toLowerCase();
+
+    let active = 0;
+    const s = normalize(statusMsg);
+    if (s.includes("preprocess") || s.includes("preprocessed") || s.includes("analy")) active = 2;
+    else if (s.includes("scrap") || s.includes("fetch") || s.includes("identif")) active = 1;
+    else active = 0;
+
+    return (
+      <div style={{ display: 'flex', gap: 12, marginTop: 12, marginBottom: 8 }}>
+        {steps.map((label, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{
+              width: 18,
+              height: 18,
+              borderRadius: 9,
+              background: i <= active ? '#10b981' : '#374151',
+              display: 'inline-block'
+            }} />
+            <div style={{ color: i <= active ? '#10b981' : '#9ca3af', fontSize: 12 }}>{label}</div>
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   /* ── Settings panel ────────────────────────────────────────── */
   const SettingsPanel = () => (
@@ -254,6 +307,10 @@ export default function App() {
         <p style={{ fontWeight: 600, fontSize: '1.1em' }}>
           Multi-Agent Pipeline Running… ({elapsedSeconds}s)
         </p>
+
+        {/* Progress stepper */}
+        <ProgressStepper statusMsg={statusMsg} />
+
         {statusMsg && (
           <p style={{ fontSize: '0.88em', color: 'var(--text-secondary)', marginTop: 8 }}>
             {statusMsg}
@@ -508,8 +565,19 @@ export default function App() {
             )}
 
             {error && (
-              <div className="error-message">
-                <AlertCircle size={16} /> {error}
+              <div>
+                <div className="error-message">
+                  <AlertCircle size={16} /> {error}
+                </div>
+                {showErrorDetails && errorDetail && (
+                  <div className="error-details">
+                    <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{errorDetail}</pre>
+                    <div className="error-actions" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
+                      <button type="button" className="inline-link" onClick={() => navigator.clipboard?.writeText(errorDetail)}>Copy details</button>
+                      <button type="button" className="inline-link" onClick={() => { setShowErrorDetails(false); setError(''); setErrorDetail(null); }}>Dismiss</button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

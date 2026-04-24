@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Optional, Dict, Any
 from sqlalchemy.orm import Session
 import sys
 import os
@@ -11,6 +12,11 @@ from database import get_db, engine
 from models import SentimentResult, Base
 from tasks import run_sentiment_agent
 from agents.visualizer import VisualizerAgent
+from database import get_db
+from sqlalchemy.orm import Session
+from models import SentimentResult
+from fastapi import Depends
+from sqlalchemy import func
 
 app = FastAPI(title="Multi-Agent Sentiment Analysis API", version="2.0.0")
 
@@ -45,6 +51,7 @@ class AnalysisRequest(BaseModel):
     api_key: str = ""           # YouTube Data API key
     max_videos: int = 50        # Max videos to scan per channel
     max_comments_per_video: int = 100  # Max comments collected per video
+    apify_options: Optional[Dict[str, Any]] = None
 
 
 
@@ -61,6 +68,8 @@ def trigger_analysis(request: AnalysisRequest):
         # regardless of whether the user is on the facebook or instagram tab.
         "facebook": request.api_key if request.platform in ("facebook", "instagram") else "",
         "instagram": request.api_key if request.platform in ("facebook", "instagram") else "",
+        # Optional: pass through arbitrary Apify options (proxy/session/cookies)
+        "apify_options": request.apify_options or {},
     }
 
     task = run_sentiment_agent.delay(
@@ -98,6 +107,10 @@ def get_task_status(job_id: str):
     if task_result.info and isinstance(task_result.info, dict):
         state["processed"] = task_result.info.get("processed", 0)
         state["status_message"] = task_result.info.get("status", state["status_message"])
+        # If the task returned an error payload (logged as a successful task returning an error dict),
+        # surface it to the frontend so users see the reason instead of a silent timeout.
+        if task_result.info.get("status") == "error":
+            state["error"] = task_result.info.get("message")
         
     if task_result.state == "FAILURE":
         state["error"] = str(task_result.info)
@@ -150,13 +163,20 @@ def auth_meta_callback(code: str = None):
 @app.get("/webhook/meta")
 def verify_meta_webhook(request: Request):
     """Meta Webhook Handshake Verification."""
+    # Load verification token from environment (safe default for local testing)
+    load_dotenv(override=False)
+    META_VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "mock_verify_token")
+
     mode = request.query_params.get("hub.mode")
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
 
     if mode and token:
         if mode == "subscribe" and token == META_VERIFY_TOKEN:
-            return int(challenge)
+            try:
+                return int(challenge)
+            except Exception:
+                return challenge
         raise HTTPException(status_code=403, detail="Verification failed")
     raise HTTPException(status_code=400, detail="Missing parameters")
 
@@ -206,3 +226,27 @@ def get_dashboard_data(platform: str, db: Session = Depends(get_db)):
     visualizer = VisualizerAgent()
     dashboard_data = visualizer.generate_dashboard_data(processed_comments)
     return dashboard_data
+
+
+@app.get("/api/report")
+def cross_platform_report(db: Session = Depends(get_db)):
+    """Aggregated cross-platform sentiment report by platform and content_type."""
+    rows = (
+        db.query(
+            SentimentResult.platform,
+            SentimentResult.content_type,
+            func.count(SentimentResult.id).label("count"),
+            func.avg(SentimentResult.sentiment_score).label("avg_sentiment"),
+        )
+        .group_by(SentimentResult.platform, SentimentResult.content_type)
+        .all()
+    )
+
+    report = {}
+    for platform, content_type, count, avg in rows:
+        report.setdefault(platform, {})[content_type or "unknown"] = {
+            "count": int(count),
+            "avg_sentiment": float(avg) if avg is not None else None,
+        }
+
+    return {"report": report}
