@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 
 
 from celery_worker import celery_app
+import threading
+import time
 
 @celery_app.task(bind=True)
 def run_sentiment_agent(
@@ -53,6 +55,21 @@ def run_sentiment_agent(
     try:
         fetcher = FetcherAgent(api_keys=api_keys)
         logger.info("[TASK] Fetcher initialised, calling fetch_comments...")
+        # Start a heartbeat thread to periodically update Celery task state
+        # This prevents the frontend from assuming the backend has stalled
+        # during long-running fetches (YouTube channel scans, Apify runs, etc.).
+        stop_event = threading.Event()
+        def _heartbeat():
+            interval = 5
+            while not stop_event.is_set():
+                try:
+                    self.update_state(state='PROGRESS', meta={'status': f'Fetching {platform} comments... still working', 'processed': 0})
+                except Exception:
+                    pass
+                time.sleep(interval)
+
+        hb_thread = threading.Thread(target=_heartbeat, daemon=True)
+        hb_thread.start()
 
         # Give the UI immediate feedback before the (potentially slow) Apify call
         if platform in ("facebook", "instagram"):
@@ -61,12 +78,17 @@ def run_sentiment_agent(
                 meta={'status': f'Scraping {platform} comments via Apify... this may take 30-60 seconds.', 'processed': 0}
             )
 
-        raw_comments = fetcher.fetch_comments(
-            platform,
-            target_account,
-            max_comments_per_video=max_comments_per_video,
-            max_videos=max_videos,
-        )
+        try:
+            raw_comments = fetcher.fetch_comments(
+                platform,
+                target_account,
+                max_comments_per_video=max_comments_per_video,
+                max_videos=max_videos,
+            )
+        finally:
+            # Stop heartbeat once fetch returns (or errors)
+            stop_event.set()
+
         self.update_state(state='PROGRESS', meta={'status': f'Fetched {len(raw_comments)} comments. Preprocessing...', 'processed': 0})
         logger.info(f"[TASK] Fetch done. Got {len(raw_comments)} comments.")
     except Exception as exc:
