@@ -10,7 +10,7 @@ import {
 } from 'recharts';
 import './index.css';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = '/api';
 
 /* ─── Default channel targets saved per platform ─── */
 const DEFAULT_TARGETS = {
