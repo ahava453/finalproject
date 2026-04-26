@@ -49,7 +49,14 @@ const COLORS = { positive: '#10b981', neutral: '#6b7280', negative: '#ef4444' };
 export default function App() {
   const [activePlatform, setActivePlatform] = useState('youtube');
   const [apiKey, setApiKey] = useState('');
-  const [targets, setTargets] = useState(DEFAULT_TARGETS);  // persisted per platform
+  const [targets, setTargets] = useState(() => {
+    try {
+      const raw = localStorage.getItem('agentflow_targets');
+      return raw ? JSON.parse(raw) : DEFAULT_TARGETS;
+    } catch (e) {
+      return DEFAULT_TARGETS;
+    }
+  });  // persisted per platform
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -79,6 +86,13 @@ export default function App() {
       return data.count ?? 0;
     } catch { return 0; }
   }, []);
+
+  // Persist targets to localStorage whenever they change
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('agentflow_targets', JSON.stringify(targets));
+    } catch (e) {}
+  }, [targets]);
 
   const loadDashboard = useCallback(async (platform) => {
     try {
@@ -153,14 +167,10 @@ export default function App() {
       return;
     }
     // Require an API key for all platforms (YouTube key, or Apify token for FB/IG)
-    if ((activePlatform === 'youtube' || activePlatform === 'facebook' || activePlatform === 'instagram') && !apiKey.trim()) {
-      if (activePlatform === 'youtube') {
-        setError('⚠️ Please enter your YouTube API key.');
-        setErrorDetail(null);
-      } else {
-        setError('⚠️ Please enter your Apify API token for Facebook/Instagram.');
-        setErrorDetail(null);
-      }
+    // Require YouTube API key; Apify token is optional (can come from .env)
+    if (activePlatform === 'youtube' && !apiKey.trim()) {
+      setError('⚠️ Please enter your YouTube API key.');
+      setErrorDetail(null);
       return;
     }
 
@@ -305,7 +315,7 @@ export default function App() {
       <div className="results-section loading-state">
         <RefreshCw className="spinner" size={48} />
         <p style={{ fontWeight: 600, fontSize: '1.1em' }}>
-          Multi-Agent Pipeline Running… ({elapsedSeconds}s)
+          {statusMsg || `Multi-Agent Pipeline Running… (${elapsedSeconds}s)`}
         </p>
 
         {/* Progress stepper */}
@@ -317,7 +327,7 @@ export default function App() {
           </p>
         )}
         <p style={{ fontSize: '0.82em', color: 'var(--text-secondary)', marginTop: 4 }}>
-          For channels, all videos are scanned — this may take a minute or two.
+          For channels, selected Reels/Shorts and latest videos are scanned — this may take a minute or two.
         </p>
       </div>
     );

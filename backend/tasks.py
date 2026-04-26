@@ -77,6 +77,12 @@ def run_sentiment_agent(
                 state='PROGRESS',
                 meta={'status': f'Scraping {platform} comments via Apify... this may take 30-60 seconds.', 'processed': 0}
             )
+        elif platform == "youtube":
+            # Inform the UI that we're performing a deep fetch across Shorts and long-form videos
+            self.update_state(
+                state='PROGRESS',
+                meta={'status': 'Agent is fetching comments from Reels and Shorts...', 'processed': 0}
+            )
 
         try:
             raw_comments = fetcher.fetch_comments(
@@ -109,6 +115,33 @@ def run_sentiment_agent(
     except Exception as exc:
         logger.error(f"[TASK] Preprocess FAILED: {exc}\n{traceback.format_exc()}")
         return {"status": "error", "message": str(exc)}
+
+    # ── 2.b Deep (BERT) analysis ──────────────────────────────────────
+    try:
+        from agents.analyzer import SentimentAnalyzerAgent
+        try:
+            analyzer = SentimentAnalyzerAgent()
+            logger.info("[TASK] Analyzer initialised — running BERT inference on cleaned texts.")
+            for comment in processed_comments:
+                try:
+                    res = analyzer.analyze_text(comment.get('clean_text', ''))
+                    lbl = str(res.get('label', '')).upper()
+                    if 'POSITIVE' in lbl:
+                        comment['sentiment_label'] = 'positive'
+                    elif 'NEGATIVE' in lbl:
+                        comment['sentiment_label'] = 'negative'
+                    else:
+                        comment['sentiment_label'] = 'neutral'
+                    comment['sentiment_score'] = float(res.get('score', 0.5))
+                    comment['bert_label'] = res.get('label')
+                    comment['bert_score'] = res.get('score')
+                except Exception as e:
+                    logger.warning(f"[TASK] BERT inference failed for a comment: {e}")
+        except Exception as e:
+            logger.error(f"[TASK] Analyzer initialization failed: {e}")
+    except Exception:
+        # analyzer is optional — continue even if unavailable
+        logger.info("[TASK] AnalyzerAgent not available; skipping deep model inference.")
 
     # ── 3. Storage ──────────────────────────────────────────────────────
     db = SessionLocal()

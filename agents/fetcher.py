@@ -329,9 +329,38 @@ class FetcherAgent:
                     except Exception:
                         pass
             return comments
+        # ── Select latest 10 long-form and latest 10 Shorts ─────────────
+        shorts_list: list[str] = []
+        longs_list: list[str] = []
+        for vid in video_ids:
+            dur = durations.get(vid)
+            # Treat unknown duration as long-form (best-effort)
+            if dur is None:
+                longs_list.append(vid)
+            else:
+                if dur <= 60:
+                    shorts_list.append(vid)
+                else:
+                    longs_list.append(vid)
+
+        selected_shorts = shorts_list[:10]
+        selected_longs = longs_list[:10]
+        selected_video_ids: list[str] = []
+        if selected_longs:
+            selected_video_ids.extend(selected_longs)
+        if selected_shorts:
+            selected_video_ids.extend(selected_shorts)
+
+        if not selected_video_ids:
+            # Fallback: use whatever videos we found
+            selected_video_ids = video_ids
+
+        logger.info(
+            f"YouTube Fetcher: selecting {len(selected_longs)} long-form and {len(selected_shorts)} shorts (total {len(selected_video_ids)}) for deep fetch"
+        )
 
         with ThreadPoolExecutor(max_workers=self._WORKERS) as pool:
-            future_to_vid = {pool.submit(_worker, vid): vid for vid in video_ids}
+            future_to_vid = {pool.submit(_worker, vid): vid for vid in selected_video_ids}
 
             for future in as_completed(future_to_vid):
                 vid = future_to_vid[future]
@@ -340,7 +369,7 @@ class FetcherAgent:
                     comments = future.result()
                     all_comments.extend(comments)
                     logger.info(
-                        f"[{done}/{total}] {vid}: +{len(comments)} comments "
+                        f"[{done}/{len(selected_video_ids)}] {vid}: +{len(comments)} comments "
                         f"(running total: {len(all_comments)})"
                     )
                 except HttpError as exc:
@@ -361,16 +390,16 @@ class FetcherAgent:
                         "processingFailure",
                     ):
                         logger.warning(
-                            f"[{done}/{total}] {vid}: comments disabled/unavailable — skipped."
+                            f"[{done}/{len(selected_video_ids)}] {vid}: comments disabled/unavailable — skipped."
                         )
                     else:
                         logger.error(
-                            f"[{done}/{total}] {vid}: HTTP {exc.resp.status} — skipped."
+                            f"[{done}/{len(selected_video_ids)}] {vid}: HTTP {exc.resp.status} — skipped."
                         )
                 except Exception as exc:
                     skipped += 1
                     logger.error(
-                        f"[{done}/{total}] {vid}: unexpected error — skipped. ({exc})"
+                        f"[{done}/{len(selected_video_ids)}] {vid}: unexpected error — skipped. ({exc})"
                     )
 
         logger.info(
@@ -575,10 +604,23 @@ class FetcherAgent:
             from agents.apify_fetcher import fetch_meta_comments
             apify_opts = self.api_keys.get("apify_options") if isinstance(self.api_keys.get("apify_options"), dict) else None
             ui_token = self.api_keys.get("facebook", "").strip() or None
+
+            # Allow shorthand page names or handles (e.g. 'nasa' or 'NASA') and convert
+            t = (target or "").strip()
+            if t and "facebook.com" not in t:
+                # strip leading @ if present
+                handle = t.lstrip("@")
+                # Build a canonical page URL
+                resolved = f"https://www.facebook.com/{handle}"
+                logger.info(f"Facebook Fetcher: transforming shorthand '{t}' -> '{resolved}'")
+                target = resolved
+
             if not _is_facebook_account_url(target):
                 raise ValueError(
                     "Facebook fetcher expects a Facebook Page account URL (not a single post URL). Example: https://www.facebook.com/nasa"
                 )
+
+            logger.info(f"Facebook Fetcher: calling Apify for target '{target}'")
             return fetch_meta_comments(target, "facebook", apify_token=ui_token, results_limit=max_posts, apify_options=apify_opts)
         except Exception as e:
             logger.error(f"Facebook Apify error: {e}")
@@ -596,10 +638,21 @@ class FetcherAgent:
             from agents.apify_fetcher import fetch_meta_comments
             apify_opts = self.api_keys.get("apify_options") if isinstance(self.api_keys.get("apify_options"), dict) else None
             ui_token = self.api_keys.get("instagram", "").strip() or None
+
+            # Accept shorthand handles (e.g. '@natgeo' or 'natgeo') and convert to full URL
+            t = (target or "").strip()
+            if t and "instagram.com" not in t:
+                handle = t.lstrip("@")
+                resolved = f"https://www.instagram.com/{handle}/"
+                logger.info(f"Instagram Fetcher: transforming shorthand '{t}' -> '{resolved}'")
+                target = resolved
+
             if not _is_instagram_account_url(target):
                 raise ValueError(
                     "Instagram fetcher expects an Instagram account/profile URL (not a single post URL). Example: https://www.instagram.com/natgeo/"
                 )
+
+            logger.info(f"Instagram Fetcher: calling Apify for target '{target}'")
             return fetch_meta_comments(target, "instagram", apify_token=ui_token, results_limit=max_posts, apify_options=apify_opts)
         except Exception as e:
             logger.error(f"Instagram Apify error: {e}")

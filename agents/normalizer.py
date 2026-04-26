@@ -101,3 +101,20 @@ def normalize_comments(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         out.append(unified)
 
     return out
+
+
+def to_standard_schema(normalized: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return a minimal, platform-agnostic schema for model consumption.
+
+    Output format per item:
+      { "text": "...", "source": "youtube|facebook|instagram", "type": "short|reel|post|video|unknown" }
+    """
+    simplified: List[Dict[str, Any]] = []
+    for item in normalized:
+        text = item.get("clean_text") or item.get("text") or item.get("comment_text") or ""
+        simplified.append({
+            "text": _as_str(text),
+            "source": (item.get("platform") or item.get("source") or "unknown").lower(),
+            "type": (item.get("content_type") or "unknown").lower(),
+        })
+    return simplified
