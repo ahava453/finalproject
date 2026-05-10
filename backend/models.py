@@ -24,4 +24,5 @@ class SentimentResult(Base):
     content_text = Column(Text)
     sentiment_score = Column(Float)
     sentiment_label = Column(String) # positive, negative, neutral
+    content_type = Column(String, index=True, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

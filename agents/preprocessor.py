@@ -41,7 +41,8 @@ class PreprocessorAgent:
         processed_data = []
 
         for comment in raw_comments:
-            clean_text = self._clean_text(comment['text'])
+            clean_text = self._clean_text(comment.get('text') or comment.get('comment_text') or '')
+            content_type = comment.get('content_type') or comment.get('duration_seconds') and ('short' if comment.get('duration_seconds') <= 60 else 'video') or 'unknown'
 
             # VADER compound score: -1 (most negative) to +1 (most positive)
             scores = self.vader.polarity_scores(clean_text)
@@ -58,13 +59,14 @@ class PreprocessorAgent:
                 sentiment_score = 0.5
 
             processed_data.append({
-                "id": comment["id"],
-                "post_id": comment["post_id"],
-                "original_text": comment["text"],
+                "id": comment.get("id") or comment.get("source_id"),
+                "post_id": comment.get("post_id") or comment.get("parent_post_id"),
+                "original_text": comment.get("text") or comment.get("comment_text", ""),
                 "clean_text": clean_text,
                 "author": comment["author"],
                 "timestamp": comment["timestamp"],
                 "platform": comment["platform"],
+                "content_type": content_type,
                 "likes": comment.get("raw_metrics", {}).get("likes", 0),
                 "sentiment_label": sentiment_label,
                 "sentiment_score": round(sentiment_score, 4),

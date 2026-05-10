@@ -22,6 +22,9 @@ class VisualizerAgent:
         # ── 2. Platform Distribution ───────────────────────────────────────
         platform_counts = Counter(c["platform"] for c in processed_comments)
 
+        # ── 2.b Content Type Distribution (reels/shorts/posts/videos)
+        content_counts = Counter(c.get("content_type", "unknown") for c in processed_comments)
+
         # ── 3. Top Keywords ────────────────────────────────────────────────
         all_keywords: list = []
         for c in processed_comments:
@@ -63,16 +66,36 @@ class VisualizerAgent:
         # ── 6. Business Intelligence Summary ───────────────────────────────
         positive_pct = round(sentiment_counts.get("positive", 0) / len(processed_comments) * 100, 1)
         negative_pct = round(sentiment_counts.get("negative", 0) / len(processed_comments) * 100, 1)
-        
+
         platforms = list(platform_counts.keys())
         platform_str = " across " + " and ".join(platforms) if platforms else ""
-        
-        bi_summary = f"Sentiment{platform_str} is {positive_pct}% positive."
+
+        bi_items = [f"Sentiment{platform_str} is {positive_pct}% positive."]
+
+        # Highlight content-type engagement insights (e.g., Reels vs Posts, Shorts vs Videos)
+        try:
+            reels = content_counts.get('reel', 0)
+            posts = content_counts.get('post', 0)
+            shorts = content_counts.get('short', 0)
+            videos = content_counts.get('video', 0)
+
+            if reels > posts and reels >= max(1, posts):
+                bi_items.append(f"Reels are seeing higher engagement ({reels}) than Posts ({posts}).")
+            elif posts > reels and posts >= max(1, reels):
+                bi_items.append(f"Posts are seeing higher engagement ({posts}) than Reels ({reels}).")
+
+            if shorts > videos and shorts >= max(1, videos):
+                bi_items.append(f"YouTube Shorts are seeing higher engagement ({shorts}) than regular Videos ({videos}).")
+        except Exception:
+            pass
+
         if negative_pct > 20:
-            bi_summary += f" However, {sentiment_counts.get('negative', 0)} comments expressed negative feedback that should be reviewed."
+            bi_items.append(f"However, {sentiment_counts.get('negative', 0)} comments expressed negative feedback that should be reviewed.")
         elif top_keywords:
             top_word = top_keywords[0][0]
-            bi_summary += f" The most frequently mentioned keyword is '{top_word}'."
+            bi_items.append(f"The most frequently mentioned keyword is '{top_word}'.")
+
+        bi_summary = " ".join(bi_items)
 
         return {
             "summary": {

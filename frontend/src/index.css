@@ -218,6 +218,27 @@ body {
   border: 1px solid rgba(248, 81, 73, 0.4);
 }
 
+.error-details {
+  margin-top: 8px;
+  padding: 12px;
+  background: rgba(248, 81, 73, 0.05);
+  border: 1px solid rgba(248, 81, 73, 0.12);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Roboto Mono", "Courier New", monospace;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow: auto;
+  color: var(--text-primary);
+}
+
+.error-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
 /* Results Section & Dashboard Grid */
 .results-section {
   flex: 1;
