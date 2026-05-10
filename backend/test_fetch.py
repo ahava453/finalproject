@@ -14,9 +14,9 @@ def main():
     except Exception as e:
         print(f"Facebook error: {e}")
 
-    print("\nTesting Instagram (account URL)...")
+    print("Testing Instagram (post/reel URL)...")
     try:
-        fetcher.fetch_comments("instagram", "https://www.instagram.com/natgeo/", max_comments_per_video=5, max_videos=2)
+        fetcher.fetch_comments("instagram", "https://www.instagram.com/p/CG0UU3NndYA/", max_comments_per_video=5, max_videos=2)
     except Exception as e:
         print(f"Instagram error: {e}")
 

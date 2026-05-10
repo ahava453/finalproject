@@ -184,26 +184,60 @@ def process_webhook_event(self, payload: dict):
     """Processes real-time events from Meta Webhooks."""
     logger.info(f"[WEBHOOK TASK] Processing payload: {payload}")
     platform = payload.get("object", "unknown")
-    entries = payload.get("entry", [])
-    
+    entries = payload.get("entry", []) or []
+
     raw_comments = []
+    import uuid
     for entry in entries:
-        changes = entry.get("changes", [])
+        changes = entry.get("changes", []) or []
         for change in changes:
-            value = change.get("value", {})
-            if change.get("field") == "comments" and value.get("item") == "comment":
+            field = change.get("field") or ""
+            value = change.get("value", {}) or {}
+            logger.debug(f"[WEBHOOK TASK] change field={field} value_keys={list(value.keys())}")
+
+            # Common shapes: Facebook Page feed comments, Instagram comments
+            # Try to extract known fields across different webhook formats.
+            comment_id = (
+                value.get("comment_id")
+                or value.get("id")
+                or value.get("commentId")
+            )
+            text = (
+                value.get("message")
+                or value.get("text")
+                or value.get("message_text")
+                or value.get("comment_text")
+            )
+            parent_id = (
+                value.get("post_id")
+                or value.get("parent_id")
+                or value.get("media_id")
+                or value.get("postId")
+            )
+            author = None
+            if isinstance(value.get("from"), dict):
+                author = value.get("from").get("name") or value.get("from").get("username")
+            author = author or value.get("sender_name") or value.get("username") or "Unknown"
+            timestamp = value.get("created_time") or value.get("created_at") or value.get("timestamp")
+
+            # If we have either an explicit comment id or some textual content, accept it.
+            if comment_id or text:
+                if not comment_id:
+                    comment_id = f"webhook-{uuid.uuid4().hex}"
+
                 raw_comments.append({
                     "platform": platform,
-                    "source_id": value.get("comment_id"),
-                    "parent_post_id": value.get("post_id"),
-                    "author": value.get("from", {}).get("name", "Unknown"),
-                    "text": value.get("message", ""),
-                    "timestamp": str(value.get("created_time", ""))
+                    "source_id": str(comment_id),
+                    "parent_post_id": str(parent_id) if parent_id is not None else None,
+                    "author": author,
+                    "text": text or "",
+                    "timestamp": str(timestamp) if timestamp is not None else "",
                 })
-                
+
     if not raw_comments:
+        logger.info("[WEBHOOK TASK] No comment-like entries found in webhook payload.")
         return {"status": "success", "message": "No comments found in webhook payload."}
-        
+
     try:
         from agents.preprocessor import PreprocessorAgent
         preprocessor = PreprocessorAgent()
@@ -211,9 +245,10 @@ def process_webhook_event(self, payload: dict):
     except Exception as exc:
         logger.error(f"[WEBHOOK TASK] Preprocess FAILED: {exc}")
         return {"status": "error"}
-        
+
     db = SessionLocal()
     try:
+        saved = 0
         for comment in processed_comments:
             src_id = comment.get("source_id")
             if db.query(SentimentResult).filter_by(source_id=src_id).first():
@@ -226,8 +261,9 @@ def process_webhook_event(self, payload: dict):
                 sentiment_score=comment["sentiment_score"],
                 sentiment_label=comment["sentiment_label"]
             ))
+            saved += 1
         db.commit()
-        logger.info(f"[WEBHOOK TASK] Saved {len(processed_comments)} real-time comments to DB.")
+        logger.info(f"[WEBHOOK TASK] Saved {saved} real-time comments to DB.")
     except Exception as exc:
         db.rollback()
         logger.error(f"[WEBHOOK TASK] DB write FAILED: {exc}")

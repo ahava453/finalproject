@@ -1,5 +1,9 @@
 import os
 import logging
+import urllib.parse
+import re
+import requests
+import json
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
@@ -45,16 +49,64 @@ def fetch_meta_comments(
 
     # Basic public URL check
     if "facebook.com" not in url and "instagram.com" not in url:
-        raise ValueError("Invalid URL. Must be a public Facebook or Instagram post URL.")
+        raise ValueError("Invalid URL. Must be a public Facebook or Instagram URL.")
 
     comments: List[Dict[str, Any]] = []
 
     try:
         if platform == "instagram":
-            run_input = {
-                "directUrls": [url],
-                "resultsLimit": results_limit,
-            }
+            # Decide whether the provided URL is a single media item (post/reel)
+            # or an account/profile URL. The instagram-comment-scraper actor
+            # requires `directUrls` with actual post/reel URLs.
+            parsed = urllib.parse.urlparse(url)
+            path = (parsed.path or "").lower()
+            is_media = any(segment in path for segment in ("/p/", "/reel/", "/reels/", "/tv/", "/media"))
+
+            if is_media:
+                # Direct post/reel URL
+                run_input = {"directUrls": [url], "resultsLimit": results_limit}
+                logger.info(f"Instagram: Using direct media URL")
+            else:
+                # Profile URL - try to discover recent posts
+                logger.info(f"Instagram: Attempting to discover posts from profile {url}")
+                
+                # Extract username from profile URL
+                path_parts = [p for p in (parsed.path or "").split("/") if p]
+                if not path_parts:
+                    raise ValueError("Invalid Instagram profile URL")
+                username = path_parts[0]
+                
+                # Try simple regex extraction from profile HTML
+                discovered_urls = []
+                try:
+                    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                    resp = requests.get(url, headers=headers, timeout=10)
+                    resp.raise_for_status()
+                    html = resp.text
+                    
+                    # Look for /p/ and /reel/ links in HTML
+                    matches = re.findall(r'href=["\']/(p|reel|reels)/([A-Za-z0-9_\-]{6,})["\']', html)
+                    seen = set()
+                    for t, code in matches:
+                        full_url = f"https://www.instagram.com/{t}/{code}/"
+                        if full_url not in seen:
+                            seen.add(full_url)
+                            discovered_urls.append(full_url)
+                        if len(discovered_urls) >= results_limit:
+                            break
+                except Exception as e:
+                    logger.warning(f"Failed to discover posts from profile: {e}")
+                
+                if discovered_urls:
+                    run_input = {"directUrls": discovered_urls, "resultsLimit": results_limit}
+                    logger.info(f"Instagram: Discovered {len(discovered_urls)} posts from profile")
+                else:
+                    # Fallback: if discovery failed, raise with helpful message
+                    raise ValueError(
+                        f"Could not discover posts from Instagram profile {url}. "
+                        "The profile may be private or Instagram may have changed their page structure. "
+                        "Please provide a direct post URL instead (e.g., https://www.instagram.com/p/ABC123/)."
+                    )
 
             # Merge caller-provided apify_options and environment-driven proxy/session
             extra = apify_options.copy() if isinstance(apify_options, dict) else {}

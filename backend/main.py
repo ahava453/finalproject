@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from models import SentimentResult
 from fastapi import Depends
 from sqlalchemy import func
+from agents.fetcher import exchange_short_lived_token
 
 app = FastAPI(title="Multi-Agent Sentiment Analysis API", version="2.0.0")
 
@@ -160,7 +161,39 @@ def auth_meta_callback(code: str = None):
     """Handle Meta OAuth callback and exchange code for short-lived token."""
     if not code:
         raise HTTPException(status_code=400, detail="Authorization code missing")
-    return {"message": "OAuth successful. Code received.", "code": code}
+    
+    load_dotenv(override=True)
+    FACEBOOK_APP_ID = os.environ.get("FACEBOOK_APP_ID")
+    FACEBOOK_APP_SECRET = os.environ.get("FACEBOOK_APP_SECRET")
+    FACEBOOK_REDIRECT_URI = os.environ.get("FACEBOOK_REDIRECT_URI", "http://localhost:8000/api/auth/meta/callback")
+    
+    if not FACEBOOK_APP_ID or not FACEBOOK_APP_SECRET:
+        raise HTTPException(status_code=500, detail="FACEBOOK_APP_ID and FACEBOOK_APP_SECRET are required for token exchange.")
+    
+    # Exchange code for short-lived token
+    token_url = "https://graph.facebook.com/v19.0/oauth/access_token"
+    params = {
+        "client_id": FACEBOOK_APP_ID,
+        "client_secret": FACEBOOK_APP_SECRET,
+        "redirect_uri": FACEBOOK_REDIRECT_URI,
+        "code": code
+    }
+    try:
+        resp = requests.get(token_url, params=params)
+        resp.raise_for_status()
+        token_data = resp.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail="Failed to obtain access token")
+        
+        # Optionally exchange to long-lived token
+        long_token = exchange_short_lived_token(access_token, FACEBOOK_APP_ID, FACEBOOK_APP_SECRET)
+        if long_token:
+            access_token = long_token
+        
+        return {"message": "OAuth successful. Access token obtained.", "access_token": access_token}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Token exchange failed: {str(e)}")
 
 @app.get("/webhook/meta")
 def verify_meta_webhook(request: Request):

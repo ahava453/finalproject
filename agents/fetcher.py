@@ -143,6 +143,12 @@ def _is_instagram_account_url(url: str) -> bool:
     return not _is_instagram_post_url(url)
 
 
+def _is_instagram_media_url(url: str) -> bool:
+    if "instagram.com" not in (url or ""):
+        return False
+    return _is_instagram_post_url(url)
+
+
 def _is_facebook_post_url(url: str) -> bool:
     try:
         lu = (url or "").lower()
@@ -630,26 +636,29 @@ class FetcherAgent:
 
     def _fetch_instagram(self, target: str, max_comments: int, max_posts: int) -> list:
         """
-        Fetch comments from an Instagram profile (account) URL using Apify.
-        This function expects an account/profile URL, not a single media post URL.
-        Token must be provided via the UI `api_keys` (Apify token) — no silent fallback.
+        Fetch comments from an Instagram post, reel, or profile using Apify.
+        - Direct media URLs (posts/reels): passed directly to actor
+        - Profile URLs: actor will attempt to discover recent posts
+        Token must be provided via the UI `api_keys` (Apify token).
         """
         try:
             from agents.apify_fetcher import fetch_meta_comments
             apify_opts = self.api_keys.get("apify_options") if isinstance(self.api_keys.get("apify_options"), dict) else None
             ui_token = self.api_keys.get("instagram", "").strip() or None
-
-            # Accept shorthand handles (e.g. '@natgeo' or 'natgeo') and convert to full URL
+            
             t = (target or "").strip()
+            
+            # Accept shorthand handles (e.g. '@natgeo' or 'natgeo') and convert to profile URL
             if t and "instagram.com" not in t:
                 handle = t.lstrip("@")
                 resolved = f"https://www.instagram.com/{handle}/"
                 logger.info(f"Instagram Fetcher: transforming shorthand '{t}' -> '{resolved}'")
                 target = resolved
 
-            if not _is_instagram_account_url(target):
+            if not (target and "instagram.com" in target):
                 raise ValueError(
-                    "Instagram fetcher expects an Instagram account/profile URL (not a single post URL). Example: https://www.instagram.com/natgeo/"
+                    "Instagram fetcher expects an Instagram profile/handle or post/reel URL. "
+                    "Examples: https://www.instagram.com/natgeo/ or https://www.instagram.com/p/ABC123/"
                 )
 
             logger.info(f"Instagram Fetcher: calling Apify for target '{target}'")

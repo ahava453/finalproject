@@ -35,7 +35,7 @@ const PLATFORM_META = {
     docLink: { href: 'https://docs.apify.com/api/v2#/introduction/authentication', text: 'How to get Apify Token' },
   },
   instagram: {
-    hint: 'Instagram handle or media URL',
+    hint: 'Instagram post or reel URL',
     placeholder: '...',
     keyLabel: 'Apify API Token (Optional if in .env)',
     keyPlaceholder: '...',
