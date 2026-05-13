@@ -27,6 +27,11 @@ class PreprocessorAgent:
     Agent responsible for cleaning, standardizing, and augmenting fetched data.
     Uses VADER for fast, social-media-optimized sentiment analysis.
 
+    Handles two comment schemas:
+      - YouTube (FetcherAgent):  keys are source_id, parent_post_id, text, author, timestamp, platform
+      - Apify (Meta platforms):  keys are source_id, parent_post_id, text, author, timestamp, platform
+      - Legacy mock data:        keys are id, post_id, text, author, timestamp, platform
+
     VADER (Valence Aware Dictionary and sEntiment Reasoner):
     - Loads in milliseconds (no deep-learning model download needed)
     - Processes thousands of comments per second
@@ -41,7 +46,20 @@ class PreprocessorAgent:
         processed_data = []
 
         for comment in raw_comments:
-            clean_text = self._clean_text(comment['text'])
+            # ── Normalise keys — support both schema variants ──────────────
+            # Primary keys (YouTube + Apify): source_id / parent_post_id
+            # Legacy / mock keys:             id        / post_id
+            source_id   = comment.get("source_id")   or comment.get("id")   or ""
+            parent_id   = comment.get("parent_post_id") or comment.get("post_id") or ""
+            text        = comment.get("text") or comment.get("clean_text") or ""
+            author      = comment.get("author") or "Unknown"
+            timestamp   = comment.get("timestamp") or ""
+            platform    = comment.get("platform") or "unknown"
+
+            if not text:
+                continue  # skip empty comments
+
+            clean_text = self._clean_text(text)
 
             # VADER compound score: -1 (most negative) to +1 (most positive)
             scores = self.vader.polarity_scores(clean_text)
@@ -58,24 +76,32 @@ class PreprocessorAgent:
                 sentiment_score = 0.5
 
             processed_data.append({
-                "id": comment["id"],
-                "post_id": comment["post_id"],
-                "original_text": comment["text"],
-                "clean_text": clean_text,
-                "author": comment["author"],
-                "timestamp": comment["timestamp"],
-                "platform": comment["platform"],
-                "likes": comment.get("raw_metrics", {}).get("likes", 0),
+                # Use unified keys so tasks.py storage works for all platforms
+                "source_id":      source_id,
+                "parent_post_id": parent_id,
+                # Keep legacy aliases so any downstream code still works
+                "id":      source_id,
+                "post_id": parent_id,
+                "original_text": text,
+                "clean_text":    clean_text,
+                "author":        author,
+                "timestamp":     timestamp,
+                "platform":      platform,
+                "likes":         comment.get("raw_metrics", {}).get("likes", 0),
                 "sentiment_label": sentiment_label,
                 "sentiment_score": round(sentiment_score, 4),
-                "keywords": self._extract_keywords(clean_text)
+                "keywords":        self._extract_keywords(clean_text),
             })
 
         logger.info(f"PreprocessorAgent: Done. {len(processed_data)} comments processed.")
         return processed_data
 
     def _clean_text(self, text: str) -> str:
+        # Remove URLs
         text = re.sub(r'http\S+', '', text)
+        # Remove HTML entities
+        text = re.sub(r'&\w+;', ' ', text)
+        # Collapse whitespace
         text = re.sub(r'\s+', ' ', text).strip()
         return text
 

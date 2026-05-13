@@ -58,7 +58,14 @@ def run_sentiment_agent(
         if platform in ("facebook", "instagram"):
             self.update_state(
                 state='PROGRESS',
-                meta={'status': f'Scraping {platform} comments via Apify... this may take 30-60 seconds.', 'processed': 0}
+                meta={
+                    'status': (
+                        f'Scraping {platform} via Apify… '
+                        'If this is a profile URL, posts are fetched first then comments. '
+                        'This may take 60–120 seconds.'
+                    ),
+                    'processed': 0,
+                }
             )
 
         raw_comments = fetcher.fetch_comments(
